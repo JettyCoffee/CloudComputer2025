@@ -1,5 +1,10 @@
 <template>
   <div class="home-view">
+    <AppHeader 
+      title="跨学科知识探索引擎" 
+      :show-back="false" 
+      :show-export="false"
+    />
     <div class="content">
       <SearchPanel @search="handleSearch" />
     </div>
@@ -13,6 +18,7 @@
 <script setup>
 import { useRouter } from 'vue-router';
 import SearchPanel from '../components/SearchPanel.vue';
+import AppHeader from '../components/AppHeader.vue';
 import { useSearchStore } from '../stores/searchStore';
 import { useGraphStore } from '../stores/graphStore';
 
@@ -33,12 +39,14 @@ async function handleSearch(concept) {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: center;
   background: radial-gradient(circle at 50% 30%, #fff, #f8f9fa);
 }
 
 .content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   width: 100%;
   padding: 0 20px;
   transform: translateY(-5vh);

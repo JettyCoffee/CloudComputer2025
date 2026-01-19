@@ -1,14 +1,13 @@
 <template>
   <div class="select-disciplines-view">
-    <AppHeader :title="searchStore.currentConcept" @export="handleExport">
+    <AppHeader 
+      :title="searchStore.currentConcept" 
+      :show-back="true"
+      @back="goBack"
+      @export="handleExport"
+    >
       <template #left>
-        <div class="progress-indicator">
-          <span class="step active">1. 输入</span>
-          <span class="separator">→</span>
-          <span class="step active">2. 学科选择</span>
-          <span class="separator">→</span>
-          <span class="step">3. 探索</span>
-        </div>
+        <ProgressSteps :current-step="2" />
       </template>
     </AppHeader>
 
@@ -65,6 +64,7 @@ import { useRouter } from 'vue-router';
 import { useSearchStore } from '../stores/searchStore';
 import { useGraphStore } from '../stores/graphStore';
 import AppHeader from '../components/AppHeader.vue';
+import ProgressSteps from '../components/ProgressSteps.vue';
 
 const router = useRouter();
 const searchStore = useSearchStore();
@@ -73,6 +73,10 @@ const graphStore = useGraphStore();
 const isAdding = ref(false);
 const newDiscipline = ref('');
 const newDisciplineInput = ref(null);
+
+function goBack() {
+  router.push('/');
+}
 
 onMounted(async () => {
   if (!searchStore.currentConcept) {
