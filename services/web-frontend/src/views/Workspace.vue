@@ -1,23 +1,19 @@
 <template>
   <div class="workspace-view">
-    <header class="header">
-      <div class="left-section">
+    <AppHeader :title="searchStore.currentConcept || '未选择'" @export="handleExport">
+      <template #left>
         <button class="icon-btn" @click="goBack" title="返回首页">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
         </button>
-        <div class="concept-title">
-          <span class="label">当前探索:</span>
-          <h2 class="value">{{ searchStore.currentConcept || '未选择' }}</h2>
+        <div class="progress-indicator">
+          <span class="step completed">1. 输入</span>
+          <span class="separator">→</span>
+          <span class="step completed">2. 学科选择</span>
+          <span class="separator">→</span>
+          <span class="step active">3. 探索中</span>
         </div>
-      </div>
-      
-      <div class="right-section">
-        <button class="action-btn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-download"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          导出报告
-        </button>
-      </div>
-    </header>
+      </template>
+    </AppHeader>
 
     <main class="main-content">
       <div class="panel graph-panel">
@@ -35,6 +31,7 @@ import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import GraphView from '../components/GraphView.vue';
 import ChatPanel from '../components/ChatPanel.vue';
+import AppHeader from '../components/AppHeader.vue';
 import { useSearchStore } from '../stores/searchStore';
 import { useGraphStore } from '../stores/graphStore';
 import { useChatStore } from '../stores/chatStore';
@@ -46,6 +43,10 @@ const chatStore = useChatStore();
 
 function goBack() {
   router.push('/');
+}
+
+function handleExport() {
+  alert('导出功能开发中...');
 }
 
 // Initial check
@@ -67,21 +68,28 @@ onMounted(() => {
   background: var(--color-background);
 }
 
-.header {
-  height: 64px;
-  border-bottom: 1px solid var(--color-border);
+/* AppHeader is used instead of internal header structure now */
+
+.progress-indicator {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-  background: white;
-  z-index: 10;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin-left: 16px;
 }
 
-.left-section {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+.step.active {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.step.completed {
+  opacity: 0.7;
+}
+
+.separator {
+  color: var(--color-border);
 }
 
 .icon-btn {

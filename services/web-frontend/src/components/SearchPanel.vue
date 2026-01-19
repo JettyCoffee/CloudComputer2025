@@ -6,15 +6,17 @@
       <div class="icon-wrapper">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
       </div>
-      <input 
-        type="text" 
+      <textarea 
         v-model="query" 
-        @keydown.enter="handleSearch"
+        @keydown.enter.prevent="handleEnter"
+        @input="autoResize"
+        ref="textareaRef"
         placeholder="输入核心概念，例如：熵、涌现、网络理论..."
         class="search-input"
         autofocus
-      />
-      <button v-if="query" @click="query = ''" class="clear-btn">
+        rows="1"
+      ></textarea>
+      <button v-if="query" @click="clearQuery" class="clear-btn">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
@@ -28,7 +30,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, nextTick, onMounted } from 'vue';
 
 const props = defineProps({
   isCompact: Boolean
@@ -36,6 +38,21 @@ const props = defineProps({
 
 const emit = defineEmits(['search']);
 const query = ref('');
+const textareaRef = ref(null);
+
+function autoResize() {
+  const el = textareaRef.value;
+  if (el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+}
+
+function handleEnter(e) {
+  if (!e.shiftKey) {
+    handleSearch();
+  }
+}
 
 function handleSearch() {
   if (query.value.trim()) {
@@ -43,9 +60,20 @@ function handleSearch() {
   }
 }
 
+function clearQuery() {
+  query.value = '';
+  nextTick(() => {
+    autoResize();
+    textareaRef.value?.focus();
+  });
+}
+
 function quickSearch(term) {
   query.value = term;
-  handleSearch();
+  nextTick(() => {
+    autoResize();
+    handleSearch();
+  });
 }
 </script>
 
@@ -70,13 +98,14 @@ function quickSearch(term) {
 
 .search-box {
   width: 100%;
-  height: 56px;
+  min-height: 56px;
+  height: auto;
   background: white;
   border: 1px solid var(--color-border);
   border-radius: 28px;
   display: flex;
-  align-items: center;
-  padding: 0 16px;
+  align-items: flex-start;
+  padding: 4px 16px;
   box-shadow: var(--shadow-sm);
   transition: all 0.2s ease;
 }
@@ -92,6 +121,7 @@ function quickSearch(term) {
   display: flex;
   align-items: center;
   margin-right: 12px;
+  margin-top: 12px;
 }
 
 .search-input {
@@ -99,8 +129,14 @@ function quickSearch(term) {
   border: none;
   outline: none;
   font-size: 16px;
-  height: 100%;
+  min-height: 24px;
   color: var(--color-text-primary);
+  resize: none;
+  overflow: hidden;
+  font-family: inherit;
+  background: transparent;
+  padding: 12px 0;
+  line-height: 1.5;
 }
 
 .clear-btn {
@@ -112,6 +148,7 @@ function quickSearch(term) {
   border-radius: 50%;
   display: flex;
   align-items: center;
+  margin-top: 8px;
 }
 
 .clear-btn:hover {

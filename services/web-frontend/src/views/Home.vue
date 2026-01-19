@@ -22,9 +22,9 @@ const graphStore = useGraphStore();
 
 async function handleSearch(concept) {
   searchStore.setConcept(concept);
-  // Pre-fetch graph data while navigating
-  graphStore.fetchGraph(concept);
-  router.push('/workspace');
+  // Clear previous data
+  searchStore.setDisciplines([]);
+  router.push('/select-disciplines');
 }
 </script>
 

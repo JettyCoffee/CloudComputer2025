@@ -4,14 +4,24 @@ import { api } from '../api'
 export const useSearchStore = defineStore('search', {
   state: () => ({
     currentConcept: '',
+    disciplines: [],
     isSearching: false
   }),
   
   actions: {
     async setConcept(concept) {
       this.currentConcept = concept;
-      // Triggers for other stores are usually handled in the view or here
-      // But keeping it simple: just state holding
+    },
+    setDisciplines(list) {
+      this.disciplines = list;
+    },
+    addDiscipline(item) {
+      if (!this.disciplines.includes(item)) {
+        this.disciplines.push(item);
+      }
+    },
+    removeDiscipline(item) {
+      this.disciplines = this.disciplines.filter(i => i !== item);
     }
   }
 })
