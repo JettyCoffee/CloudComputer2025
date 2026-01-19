@@ -2,13 +2,8 @@
   <div class="workspace-view">
     <AppHeader 
       :title="searchStore.currentConcept || '未选择'" 
-      :show-back="true"
-      @back="goBack"
-      @export="handleExport"
     >
-      <template #left>
-        <ProgressSteps :current-step="3" />
-      </template>
+      <ProgressSteps :current-step="3" />
     </AppHeader>
 
     <main class="main-content">
@@ -37,14 +32,6 @@ const router = useRouter();
 const searchStore = useSearchStore();
 const graphStore = useGraphStore();
 const chatStore = useChatStore();
-
-function goBack() {
-  router.push('/');
-}
-
-function handleExport() {
-  alert('导出功能开发中...');
-}
 
 // Initial check
 onMounted(() => {

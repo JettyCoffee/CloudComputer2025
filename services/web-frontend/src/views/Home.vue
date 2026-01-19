@@ -1,9 +1,7 @@
 <template>
   <div class="home-view">
     <AppHeader 
-      title="跨学科知识探索引擎" 
-      :show-back="false" 
-      :show-export="false"
+      title="Cross Learning" 
     />
     <div class="content">
       <SearchPanel @search="handleSearch" />

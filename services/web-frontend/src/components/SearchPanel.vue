@@ -11,7 +11,7 @@
         @keydown.enter.prevent="handleEnter"
         @input="autoResize"
         ref="textareaRef"
-        placeholder="输入核心概念，例如：熵、涌现、网络理论..."
+        placeholder="输入你所感兴趣的概念，例如：熵、神经网络、最小二乘法..."
         class="search-input"
         autofocus
         rows="1"
@@ -23,8 +23,8 @@
 
     <div v-if="!isCompact" class="suggestions">
       <button @click="quickSearch('熵')" class="suggestion-pill">熵</button>
-      <button @click="quickSearch('控制论')" class="suggestion-pill">控制论</button>
-      <button @click="quickSearch('博弈论')" class="suggestion-pill">博弈论</button>
+      <button @click="quickSearch('最小二乘法')" class="suggestion-pill">最小二乘法</button>
+      <button @click="quickSearch('神经网络')" class="suggestion-pill">神经网络</button>
     </div>
   </div>
 </template>

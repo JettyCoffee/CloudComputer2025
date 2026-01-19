@@ -2,13 +2,8 @@
   <div class="select-disciplines-view">
     <AppHeader 
       :title="searchStore.currentConcept" 
-      :show-back="true"
-      @back="goBack"
-      @export="handleExport"
     >
-      <template #left>
-        <ProgressSteps :current-step="2" />
-      </template>
+      <ProgressSteps :current-step="2" />
     </AppHeader>
 
     <main class="main-content">
@@ -74,10 +69,6 @@ const isAdding = ref(false);
 const newDiscipline = ref('');
 const newDisciplineInput = ref(null);
 
-function goBack() {
-  router.push('/');
-}
-
 onMounted(async () => {
   if (!searchStore.currentConcept) {
     router.push('/');
@@ -109,10 +100,6 @@ function startQuery() {
   // Trigger graph fetch
   graphStore.fetchGraph(searchStore.currentConcept);
   router.push('/workspace');
-}
-
-function handleExport() {
-  alert('导出功能开发中...');
 }
 </script>
 
