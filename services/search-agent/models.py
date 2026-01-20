@@ -132,3 +132,20 @@ class SearchStatusData(BaseModel):
 class CancelTaskResult(BaseModel):
     task_id: str
     status: Literal["cancelled"] = "cancelled"
+
+class PlanRequest(BaseModel):
+    concept: str = Field(..., min_length=1)
+    max_disciplines: int = Field(8, ge=1, le=12)
+    min_relevance: float = Field(0.3, ge=0.0, le=1.0)
+    default_selected: int = Field(3, ge=1, le=12)
+
+class PlanDiscipline(Discipline):
+    is_default_selected: bool = False
+
+
+class PlanResult(BaseModel):
+    concept: str
+    primary_discipline: str
+    defaults: list[str] = Field(default_factory=list)  # discipline ids
+    disciplines: list[PlanDiscipline]
+    suggested_additions: list[SuggestedAddition] = Field(default_factory=list)

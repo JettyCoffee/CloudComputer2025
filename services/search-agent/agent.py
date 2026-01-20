@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
+import urllib.parse
 
 import httpx
 
@@ -41,6 +42,7 @@ class SearchAgent:
         self.openai_base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
         self.timeout_s = float(os.getenv("HTTP_TIMEOUT_S", "30"))
+        self.llm_timeout_s = float(os.getenv("LLM_TIMEOUT_S", "120"))
         self.knowledge_engine_url = os.getenv("KNOWLEDGE_ENGINE_URL", "http://knowledge-engine:8002").strip()
         self.wiki_lang = os.getenv("WIKIPEDIA_LANG", "zh").strip().lower()
 
@@ -58,8 +60,8 @@ class SearchAgent:
                 payload["primary_discipline"] = payload.get("primary_discipline") or (disciplines[0]["name"] if disciplines else "综合")
                 payload.setdefault("suggested_additions", [])
                 return payload
-            except Exception:
-                pass
+            except Exception as e:
+                logger.exception("LLM classify failed, fallback enabled. concept=%s err=%s", concept, e)
 
         # fallback（保证无 key 也能演示）
         default = [
@@ -151,7 +153,8 @@ class SearchAgent:
             for title, page_url in list(zip(titles, urls))[:max_results]:
                 # summary endpoint (REST)
                 # Use title in URL; MediaWiki REST expects URL-encoded title
-                summary_url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{httpx.URL(title)}"
+                safe_title = urllib.parse.quote(title, safe="")
+                summary_url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{safe_title}"
                 try:
                     sr = await client.get(summary_url, headers={"User-Agent": "CloudComputer2025-SearchAgent/0.1"})
                     if sr.status_code != 200:
@@ -332,9 +335,18 @@ class SearchAgent:
             ],
             "temperature": 0.2,
         }
-        async with httpx.AsyncClient(timeout=self.timeout_s) as client:
-            r = await client.post(url, headers=headers, json=body)
-            r.raise_for_status()
-            data = r.json()
-        content = data["choices"][0]["message"]["content"]
-        return json.loads(content)
+        last_exc: Exception | None = None
+        for attempt in range(3):  # 2 次重试（共 3 次）
+            try:
+                async with httpx.AsyncClient(timeout=self.llm_timeout_s) as client:
+                    r = await client.post(url, headers=headers, json=body)
+                    r.raise_for_status()
+                    data = r.json()
+                content = data["choices"][0]["message"]["content"]
+                return json.loads(content)
+            except Exception as e:
+                last_exc = e
+                logger.warning("LLM request failed attempt=%s/3 err=%r", attempt + 1, e)
+                await asyncio.sleep(0.8 * (attempt + 1))
+
+        raise last_exc

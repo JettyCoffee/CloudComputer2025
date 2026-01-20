@@ -15,6 +15,9 @@ from models import (
     ClassifyRequest,
     ClassifyResult,
     Pagination,
+    PlanRequest,
+    PlanResult,
+    PlanDiscipline,
     SearchResultsResponseData,
     SearchStartRequest,
     SearchStartResult,
@@ -115,6 +118,11 @@ async def start(req: SearchStartRequest) -> APIResponse:
             TASKS[task_id]["status"] = "failed"
             TASKS[task_id]["error"] = str(e)
         finally:
+            if TASKS[task_id]["status"] == "completed":
+                TASKS[task_id]["progress"]["overall"] = 100
+                TASKS[task_id]["progress"]["current_stage"] = "completed"
+                for k in TASKS[task_id]["progress"]["stages"].keys():
+                    TASKS[task_id]["progress"]["stages"][k] = "completed"
             TASKS[task_id]["updated_at"] = datetime.utcnow()
 
     asyncio.create_task(runner())
@@ -197,3 +205,55 @@ async def cancel(task_id: str) -> APIResponse:
     t["status"] = "cancelled"
     t["updated_at"] = datetime.utcnow()
     return APIResponse(message="Task cancelled successfully", data=CancelTaskResult(task_id=task_id))
+
+@app.post("/api/search/plan")
+async def plan(req: PlanRequest) -> APIResponse:
+    """
+    返回“概念涉及哪些领域 + 默认选中哪些领域”，给前端做勾选确认用。
+    """
+    raw = await agent.classify(req.concept, req.max_disciplines, req.min_relevance)
+
+    disciplines = raw.get("disciplines") or []
+    default_n = max(1, min(req.default_selected, len(disciplines)))
+    disciplines_sorted = sorted(disciplines, key=lambda d: float(d.get("relevance_score", 0.0)), reverse=True)
+
+    primary_id = None
+    for d in disciplines_sorted:
+        if d.get("is_primary"):
+            primary_id = d.get("id")
+            break
+
+    defaults: list[str] = []
+    if primary_id:
+        defaults.append(primary_id)
+
+    for d in disciplines_sorted:
+        if len(defaults) >= default_n:
+            break
+        did = d.get("id")
+        if did and did not in defaults:
+            defaults.append(did)
+
+    plan_disciplines: list[PlanDiscipline] = []
+    for d in disciplines_sorted:
+        did = d.get("id")
+        plan_disciplines.append(
+            PlanDiscipline(
+                id=str(did),
+                name=d["name"],
+                relevance_score=float(d.get("relevance_score", 0.0)),
+                reason=d.get("reason", ""),
+                search_keywords=list(d.get("search_keywords") or []),
+                is_primary=bool(d.get("is_primary", False)),
+                is_default_selected=bool(did in defaults),
+            )
+        )
+
+    data = PlanResult(
+        concept=req.concept,
+        primary_discipline=raw.get("primary_discipline") or (disciplines_sorted[0]["name"] if disciplines_sorted else "综合"),
+        defaults=defaults,
+        disciplines=plan_disciplines,
+        suggested_additions=raw.get("suggested_additions") or [],
+    )
+    return APIResponse(data=data)
