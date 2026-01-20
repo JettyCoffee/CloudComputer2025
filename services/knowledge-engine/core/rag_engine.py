@@ -1,11 +1,12 @@
 import os
 import json
 import numpy as np
-from lightrag import LightRAG
+from lightrag import LightRAG, QueryParam
 from lightrag.utils import EmbeddingFunc
 from sentence_transformers import SentenceTransformer
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+from typing import Dict
 
 load_dotenv()
 
@@ -13,6 +14,7 @@ class RAGEngine:
     def __init__(self):
         self.base_dir = "./lightrag_workdir"
         os.makedirs(self.base_dir, exist_ok=True)
+        self.rag_instances: Dict[str, LightRAG] = {}  # 存储每个概念的 RAG 实例
         
         # 加载本地 Embedding 模型
         model_path = os.getenv("EMBEDDING_MODEL", "./bge-large-zh-v1.5")
@@ -20,11 +22,74 @@ class RAGEngine:
         self.embedding_model = SentenceTransformer(model_path, device='cpu')
         print("【success】Embedding Model Loaded")
     
+    def get_rag_instance(self, concept: str) -> LightRAG:
+        """
+        获取或创建指定概念的 LightRAG 实例
+        
+        如果该概念的 RAG 实例已存在于缓存中，直接返回；
+        否则创建新实例（会自动加载 working_dir 中已有的数据）。
+        
+        参数:
+        - concept: 核心概念名称
+        
+        返回: LightRAG 实例
+        """
+        if concept not in self.rag_instances:
+            working_dir = os.path.join(self.base_dir, concept)
+            os.makedirs(working_dir, exist_ok=True)
+            
+            print(f"正在初始化/加载概念 '{concept}' 的 LightRAG 实例...")
+            
+            # 创建 LightRAG 实例（如果 working_dir 中有数据会自动加载）
+            self.rag_instances[concept] = LightRAG(
+                working_dir=working_dir,
+                llm_model_func=self._llm_wrapper,
+                embedding_func=EmbeddingFunc(
+                    embedding_dim=1024,
+                    max_token_size=512,
+                    func=self._embedding_wrapper
+                )
+            )
+
+            #await self.rag_instances[concept].initialize_storages()
+            
+            print(f"✅ 概念 '{concept}' 的 RAG 实例已就绪")
+        
+        return self.rag_instances[concept]
+    
+    async def query(self, concept: str, question: str, param: QueryParam = None) -> str:
+        """
+        使用 LightRAG 进行查询
+        
+        参数:
+        - concept: 核心概念（指定使用哪个知识图谱）
+        - question: 用户问题
+        - param: 查询参数
+        
+        返回: LLM 生成的答案
+        """
+        if param is None:
+            param = QueryParam(mode="hybrid")
+        
+        # 获取对应概念的 RAG 实例（会自动加载已有数据）
+        rag = self.get_rag_instance(concept)
+        await rag.initialize_storages()
+        # 调用 LightRAG 的查询方法
+        return await rag.aquery(question, param=param)
+
     async def _llm_wrapper(self, prompt, system_prompt=None, history_messages=[], **kwargs):
-        """LLM 调用（保留你的中文优化指令）"""
+        """LLM 调用"""
         kwargs.pop("hashing_kv", None)
         kwargs.pop("keyword_extraction", None)
-        
+        # 过滤掉所有 OpenAI API 不支持的参数
+        allowed_params = {
+            "temperature", "top_p", "n", "stream", "stop", 
+            "max_tokens", "presence_penalty", "frequency_penalty",
+            "logit_bias", "user", "response_format", "seed",
+            "tools", "tool_choice", "functions", "function_call"
+        }
+        kwargs = {k: v for k, v in kwargs.items() if k in allowed_params}
+    
         instruction = """
         【重要：实体提取控制与过滤规则】
         你是一个严谨的科学知识图谱构建者。请在提取实体时遵守以下标准：
@@ -81,29 +146,16 @@ class RAGEngine:
         
         返回: (工作目录路径, chunk映射字典)
         """
-        # 每个概念独立目录
+        # 获取该概念的 RAG 实例（如果已存在会直接返回）
+        rag = self.get_rag_instance(concept)
         working_dir = os.path.join(self.base_dir, concept)
-        os.makedirs(working_dir, exist_ok=True)
         
-        # 初始化 LightRAG
-        rag = LightRAG(
-            working_dir=working_dir,
-            llm_model_func=self._llm_wrapper,
-            embedding_func=EmbeddingFunc(
-                embedding_dim=1024,
-                max_token_size=512,
-                func=self._embedding_wrapper
-            )
-        )
-        
-        # 初始化存储
+        # 初始化存储（如果是新建的实例）
         await rag.initialize_storages()
         
         # ========== 【关键修改】分别插入每个文档 ==========
         print(f"正在为概念 '{concept}' 构建图谱 ({len(documents)} 文档)...")
-        
-        # 记录每个文档对应的 full_doc_id (LightRAG 生成)
-        doc_id_mapping = {}
+         
         
         for doc in documents:
             # 添加元数据标记

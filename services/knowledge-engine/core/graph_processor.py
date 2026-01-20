@@ -158,7 +158,7 @@ class GraphProcessor:
                 "description": node_data.get('description', '暂无描述'),
                 "domains": domains,
                 "source_chunks": source_chunks,
-                "size": 35 if node_id == concept else 15  # 核心概念设为35
+                "size": G.degree(node_id) + 1  # 前端可参考的节点大小，=deg+1
             }
             
             nodes.append(node)

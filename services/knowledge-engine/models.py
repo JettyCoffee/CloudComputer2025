@@ -1,16 +1,32 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 # ========== 输入模型 ==========
-class DocItem(BaseModel):
-    doc_id: str
-    domain: str  # 学科领域
+class SourceInfo(BaseModel):
+    url: str
+    title: Optional[str] = None
+    published_date: Optional[str] = None
+
+class ValidationInfo(BaseModel):
+    is_validated: bool = False
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    notes: Optional[str] = None
+
+class Chunk(BaseModel):
+    """Search Agent 发送的 Chunk 格式"""
+    id: str
     content: str
+    discipline: str  # 对应 domain
+    source: SourceInfo
+    relevance_score: float = Field(0.0, ge=0.0, le=1.0)
+    academic_value: float = Field(0.0, ge=0.0, le=1.0)
+    validation: ValidationInfo = Field(default_factory=ValidationInfo)
+    extracted_entities: list[str] = Field(default_factory=list)
 
 class IngestRequest(BaseModel):
-    task_id: str
-    concept: str  # 核心概念
-    documents: List[DocItem]
+    """接收 Search Agent 的数据"""
+    concept: str
+    chunks: list[Chunk] 
 
 # ========== 输出模型 ==========
 class NodeItem(BaseModel):
