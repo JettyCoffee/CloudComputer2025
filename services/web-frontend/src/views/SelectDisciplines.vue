@@ -1,15 +1,9 @@
 <template>
   <div class="select-disciplines-view">
-    <AppHeader :title="searchStore.currentConcept" @export="handleExport">
-      <template #left>
-        <div class="progress-indicator">
-          <span class="step active">1. 输入</span>
-          <span class="separator">→</span>
-          <span class="step active">2. 学科选择</span>
-          <span class="separator">→</span>
-          <span class="step">3. 探索</span>
-        </div>
-      </template>
+    <AppHeader 
+      :title="searchStore.currentConcept" 
+    >
+      <ProgressSteps :current-step="2" />
     </AppHeader>
 
     <main class="main-content">
@@ -17,43 +11,87 @@
         <h2>选择相关学科领域</h2>
         <p class="subtitle">为了提供更精准的跨学科知识，请确认或调整该概念涉及的学科领域。</p>
         
-        <div class="disciplines-grid">
-          <div 
-            v-for="discipline in searchStore.disciplines" 
-            :key="discipline"
-            class="discipline-card"
-          >
-            <span>{{ discipline }}</span>
-            <button class="remove-btn" @click="searchStore.removeDiscipline(discipline)">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-          </div>
-
-          <div class="add-discipline-card" v-if="!isAdding">
-            <button class="add-btn" @click="isAdding = true">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-              添加学科
-            </button>
-          </div>
-          
-          <div class="add-discipline-input" v-else>
-            <input 
-              ref="newDisciplineInput"
-              v-model="newDiscipline" 
-              @keydown.enter="addNewDiscipline"
-              @keydown.esc="isAdding = false" 
-              placeholder="输入学科名称"
-            />
-            <button @click="addNewDiscipline" class="confirm-add">OK</button>
-          </div>
+        <!-- 加载状态 -->
+        <div v-if="searchStore.isClassifying" class="loading-state">
+          <div class="spinner"></div>
+          <p>正在分析概念相关学科...</p>
         </div>
 
-        <div class="actions">
-          <button class="primary-btn" @click="startQuery">
-            开始查询
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
-          </button>
+        <!-- 错误状态 -->
+        <div v-else-if="searchStore.classifyError" class="error-state">
+          <p>分类失败: {{ searchStore.classifyError }}</p>
+          <button @click="retryClassify" class="retry-btn">重试</button>
         </div>
+
+        <!-- 学科列表 -->
+        <template v-else>
+          <!-- 主学科提示 -->
+          <div v-if="searchStore.primaryDiscipline" class="primary-discipline-hint">
+            <span class="label">主要学科:</span>
+            <span class="value">{{ searchStore.primaryDiscipline }}</span>
+          </div>
+
+          <div class="disciplines-grid">
+            <div 
+              v-for="discipline in searchStore.disciplines" 
+              :key="getDisciplineName(discipline)"
+              class="discipline-card"
+              :class="{ 'is-primary': discipline.is_primary }"
+            >
+              <div class="discipline-info">
+                <span class="name">{{ getDisciplineName(discipline) }}</span>
+                <span v-if="discipline.relevance_score" class="relevance">
+                  {{ Math.round(discipline.relevance_score * 100) }}%
+                </span>
+              </div>
+              <p v-if="discipline.reason" class="reason">{{ discipline.reason }}</p>
+              <button class="remove-btn" @click="searchStore.removeDiscipline(discipline)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+
+            <div class="add-discipline-card" v-if="!isAdding">
+              <button class="add-btn" @click="isAdding = true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                添加学科
+              </button>
+            </div>
+            
+            <div class="add-discipline-input" v-else>
+              <input 
+                ref="newDisciplineInput"
+                v-model="newDiscipline" 
+                @keydown.enter="addNewDiscipline"
+                @keydown.esc="isAdding = false" 
+                placeholder="输入学科名称"
+              />
+              <button @click="addNewDiscipline" class="confirm-add">OK</button>
+            </div>
+          </div>
+
+          <!-- 建议添加的学科 -->
+          <div v-if="searchStore.suggestedAdditions && searchStore.suggestedAdditions.length > 0" class="suggested-additions">
+            <h3>推荐添加</h3>
+            <div class="suggestions-list">
+              <button 
+                v-for="suggestion in searchStore.suggestedAdditions" 
+                :key="suggestion.name"
+                class="suggestion-btn"
+                @click="addSuggestion(suggestion)"
+              >
+                + {{ suggestion.name }}
+                <span v-if="suggestion.reason" class="suggestion-reason">{{ suggestion.reason }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="primary-btn" @click="startQuery" :disabled="searchStore.disciplines.length === 0">
+              开始查询
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+            </button>
+          </div>
+        </template>
       </div>
     </main>
   </div>
@@ -65,6 +103,7 @@ import { useRouter } from 'vue-router';
 import { useSearchStore } from '../stores/searchStore';
 import { useGraphStore } from '../stores/graphStore';
 import AppHeader from '../components/AppHeader.vue';
+import ProgressSteps from '../components/ProgressSteps.vue';
 
 const router = useRouter();
 const searchStore = useSearchStore();
@@ -74,24 +113,36 @@ const isAdding = ref(false);
 const newDiscipline = ref('');
 const newDisciplineInput = ref(null);
 
+// 获取学科名称（兼容字符串和对象）
+function getDisciplineName(discipline) {
+  return typeof discipline === 'string' ? discipline : discipline.name;
+}
+
 onMounted(async () => {
   if (!searchStore.currentConcept) {
     router.push('/');
     return;
   }
   
-  // Mock API call to get initial disciplines
-  // In real app, this would be an API call based on concept
+  // 如果还没有学科数据，调用分类API
   if (searchStore.disciplines.length === 0) {
-    // Simulate loading
-    const startList = ['物理学', '信息论', '复杂系统科学'];
-    if (searchStore.currentConcept.includes('熵')) {
-      searchStore.setDisciplines(startList);
-    } else {
-       searchStore.setDisciplines(['计算机科学', '数学', '哲学']);
-    }
+    await classifyConcept();
   }
 });
+
+// 调用分类API
+async function classifyConcept() {
+  try {
+    await searchStore.classifyConcept(searchStore.currentConcept);
+  } catch (error) {
+    console.error('分类失败:', error);
+  }
+}
+
+// 重试分类
+async function retryClassify() {
+  await classifyConcept();
+}
 
 function addNewDiscipline() {
   if (newDiscipline.value.trim()) {
@@ -101,14 +152,26 @@ function addNewDiscipline() {
   }
 }
 
+// 添加建议的学科
+function addSuggestion(suggestion) {
+  searchStore.addDiscipline({
+    id: suggestion.name,
+    name: suggestion.name,
+    relevance_score: 0.8,
+    reason: suggestion.reason,
+    search_keywords: [],
+    is_primary: false
+  });
+  // 从建议列表中移除
+  searchStore.suggestedAdditions = searchStore.suggestedAdditions.filter(
+    s => s.name !== suggestion.name
+  );
+}
+
 function startQuery() {
   // Trigger graph fetch
   graphStore.fetchGraph(searchStore.currentConcept);
   router.push('/workspace');
-}
-
-function handleExport() {
-  alert('导出功能开发中...');
 }
 </script>
 
@@ -157,12 +220,18 @@ h2 {
   padding: 12px 24px;
   border-radius: 8px;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   font-size: 16px;
   color: var(--color-text-primary);
   box-shadow: var(--shadow-sm);
   transition: all 0.2s;
+  position: relative;
+}
+
+.discipline-card.is-primary {
+  border-color: var(--color-primary);
+  background: linear-gradient(to right, rgba(59, 130, 246, 0.05), white);
 }
 
 .discipline-card:hover {
@@ -170,7 +239,36 @@ h2 {
   box-shadow: var(--shadow-md);
 }
 
+.discipline-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.discipline-info .name {
+  font-weight: 500;
+}
+
+.discipline-info .relevance {
+  font-size: 12px;
+  color: var(--color-primary);
+  background: rgba(59, 130, 246, 0.1);
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.discipline-card .reason {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
 .remove-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   background: none;
   border: none;
   color: var(--color-text-secondary);
@@ -186,6 +284,112 @@ h2 {
   background: var(--color-surface);
   color: #ef4444;
   opacity: 1;
+}
+
+/* 加载和错误状态 */
+.loading-state,
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--color-text-secondary);
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.error-state {
+  color: #ef4444;
+}
+
+.retry-btn {
+  margin-top: 16px;
+  padding: 8px 24px;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* 主学科提示 */
+.primary-discipline-hint {
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: rgba(59, 130, 246, 0.05);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.primary-discipline-hint .label {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.primary-discipline-hint .value {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+/* 推荐添加 */
+.suggested-additions {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.suggested-additions h3 {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+.suggestions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.suggestion-btn {
+  padding: 8px 16px;
+  background: white;
+  border: 1px dashed var(--color-border);
+  border-radius: 20px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.suggestion-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.suggestion-reason {
+  font-size: 11px;
+  opacity: 0.7;
 }
 
 .add-discipline-card {

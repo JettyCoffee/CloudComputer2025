@@ -1,8 +1,12 @@
-// Mock Data Generator
+// Search Agent API Client
 
-// Helper to simulate delay
+// API Base URL - uses Vite proxy in development
+const API_BASE = '/api';
+
+// Helper to simulate delay (for mock data fallback)
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Mock Graph Data (保留用于图谱展示，后续可接入knowledge-engine)
 export const mockGraphData = {
   "熵": {
     nodes: [
@@ -49,23 +53,171 @@ export const mockGraphData = {
   }
 };
 
+/**
+ * 统一请求处理函数
+ */
+async function request(endpoint, options = {}) {
+  const url = `${API_BASE}${endpoint}`;
+  const config = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
+  };
+
+  const response = await fetch(url, config);
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
 export const api = {
-  // Simulate network delay for searching
-  classifyConcept: async (concept) => {
-    await delay(800);
-    return {
-      concept,
-      disciplines: ["物理学", "计算机科学", "统计学", "生物学"]
-    };
+  /**
+   * 健康检查
+   */
+  health: async () => {
+    const res = await request('/health');
+    return res.data;
   },
 
-  // Get graph data
+  /**
+   * 概念分类 - 获取概念相关的学科领域
+   * @param {string} concept - 要分类的概念
+   * @param {number} maxDisciplines - 最大返回学科数
+   * @param {number} minRelevance - 最小相关度阈值
+   * @returns {Promise<{concept, primary_discipline, disciplines, suggested_additions}>}
+   */
+  classifyConcept: async (concept, maxDisciplines = 5, minRelevance = 0.3) => {
+    const res = await request('/search/classify', {
+      method: 'POST',
+      body: JSON.stringify({
+        concept,
+        max_disciplines: maxDisciplines,
+        min_relevance: minRelevance,
+      }),
+    });
+    return res.data;
+  },
+
+  /**
+   * 开始搜索任务
+   * @param {string} concept - 搜索的概念
+   * @param {Array<{name: string, search_keywords: string[]}>} disciplines - 学科列表
+   * @param {Object} searchConfig - 搜索配置
+   * @returns {Promise<{task_id, status, created_at, estimated_duration_seconds}>}
+   */
+  startSearch: async (concept, disciplines, searchConfig = {}) => {
+    const res = await request('/search/start', {
+      method: 'POST',
+      body: JSON.stringify({
+        concept,
+        disciplines: disciplines.map(d => 
+          typeof d === 'string' 
+            ? { name: d, search_keywords: [] } 
+            : d
+        ),
+        search_config: {
+          depth: searchConfig.depth || 'medium',
+          max_results_per_discipline: searchConfig.maxResultsPerDiscipline || 10,
+          enable_validation: searchConfig.enableValidation !== false,
+        },
+      }),
+    });
+    return res.data;
+  },
+
+  /**
+   * 获取搜索任务状态
+   * @param {string} taskId - 任务ID
+   * @returns {Promise<{task_id, status, progress, partial_results, started_at, updated_at}>}
+   */
+  getSearchStatus: async (taskId) => {
+    const res = await request(`/search/status/${taskId}`);
+    return res.data;
+  },
+
+  /**
+   * 获取搜索结果
+   * @param {string} taskId - 任务ID
+   * @param {Object} options - 分页和过滤选项
+   * @returns {Promise<{task_id, concept, summary, chunks, pagination}>}
+   */
+  getSearchResults: async (taskId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.page) params.set('page', options.page);
+    if (options.pageSize) params.set('page_size', options.pageSize);
+    if (options.discipline) params.set('discipline', options.discipline);
+    if (options.minRelevance !== undefined) params.set('min_relevance', options.minRelevance);
+
+    const queryString = params.toString();
+    const endpoint = `/search/results/${taskId}${queryString ? `?${queryString}` : ''}`;
+    const res = await request(endpoint);
+    return res.data;
+  },
+
+  /**
+   * 取消搜索任务
+   * @param {string} taskId - 任务ID
+   * @returns {Promise<{task_id, status}>}
+   */
+  cancelSearch: async (taskId) => {
+    const res = await request(`/search/tasks/${taskId}`, {
+      method: 'DELETE',
+    });
+    return res.data;
+  },
+
+  /**
+   * 轮询搜索状态直到完成
+   * @param {string} taskId - 任务ID
+   * @param {Function} onProgress - 进度回调
+   * @param {number} interval - 轮询间隔(ms)
+   * @returns {Promise<{task_id, concept, summary, chunks, pagination}>}
+   */
+  pollSearchUntilComplete: async (taskId, onProgress, interval = 2000) => {
+    while (true) {
+      const status = await api.getSearchStatus(taskId);
+      
+      if (onProgress) {
+        onProgress(status);
+      }
+
+      if (status.status === 'completed') {
+        return api.getSearchResults(taskId);
+      }
+
+      if (status.status === 'failed') {
+        throw new Error('搜索任务失败');
+      }
+
+      if (status.status === 'cancelled') {
+        throw new Error('搜索任务已取消');
+      }
+
+      await delay(interval);
+    }
+  },
+
+  // ============ 图谱相关 (暂用Mock数据，后续接入knowledge-engine) ============
+  
+  /**
+   * 获取知识图谱数据
+   */
   getGraph: async (concept) => {
-    await delay(1500);
+    await delay(500);
     return mockGraphData[concept] || mockGraphData["默认"];
   },
 
-  // Mock streaming response for chat
+  // ============ 聊天相关 (Mock实现，后续接入) ============
+  
+  /**
+   * 流式回答
+   */
   async *streamAnswer(question) {
     const responses = [
       "根据**知识图谱**的关联分析，这个概念横跨了多个学科。",

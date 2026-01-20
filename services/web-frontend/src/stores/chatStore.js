@@ -3,13 +3,7 @@ import { api } from '../api'
 
 export const useChatStore = defineStore('chat', {
   state: () => ({
-    messages: [
-      { 
-        id: 1, 
-        role: 'system', 
-        content: '我是您的跨学科知识助手。请输入概念或点击图谱节点开始探索。' 
-      }
-    ],
+    messages: [],
     isStreaming: false
   }),
   

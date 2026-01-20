@@ -1,18 +1,9 @@
 <template>
   <div class="workspace-view">
-    <AppHeader :title="searchStore.currentConcept || '未选择'" @export="handleExport">
-      <template #left>
-        <button class="icon-btn" @click="goBack" title="返回首页">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
-        </button>
-        <div class="progress-indicator">
-          <span class="step completed">1. 输入</span>
-          <span class="separator">→</span>
-          <span class="step completed">2. 学科选择</span>
-          <span class="separator">→</span>
-          <span class="step active">3. 探索中</span>
-        </div>
-      </template>
+    <AppHeader 
+      :title="searchStore.currentConcept || '未选择'" 
+    >
+      <ProgressSteps :current-step="3" />
     </AppHeader>
 
     <main class="main-content">
@@ -32,6 +23,7 @@ import { useRouter } from 'vue-router';
 import GraphView from '../components/GraphView.vue';
 import ChatPanel from '../components/ChatPanel.vue';
 import AppHeader from '../components/AppHeader.vue';
+import ProgressSteps from '../components/ProgressSteps.vue';
 import { useSearchStore } from '../stores/searchStore';
 import { useGraphStore } from '../stores/graphStore';
 import { useChatStore } from '../stores/chatStore';
@@ -40,14 +32,6 @@ const router = useRouter();
 const searchStore = useSearchStore();
 const graphStore = useGraphStore();
 const chatStore = useChatStore();
-
-function goBack() {
-  router.push('/');
-}
-
-function handleExport() {
-  alert('导出功能开发中...');
-}
 
 // Initial check
 onMounted(() => {

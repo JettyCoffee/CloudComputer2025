@@ -4,16 +4,35 @@
       <div class="spinner"></div>
       <p>正在构建知识图谱...</p>
     </div>
+
+    <!-- Controls -->
+    <div class="graph-controls" v-if="graphStore.nodes.length > 0">
+      <button @click="resetZoom" class="control-btn" title="重置视图">
+        <span>⤢</span>
+      </button>
+    </div>
+
     <svg ref="svgRef"></svg>
     
     <NodeDetail />
 
     <!-- Legend -->
     <div class="legend" v-if="graphStore.disciplines.length > 0">
-      <div v-for="disc in graphStore.disciplines" :key="disc" class="legend-item">
+      <div class="legend-title">学科分布 (点击筛选)</div>
+      <div 
+        v-for="disc in graphStore.disciplines" 
+        :key="disc" 
+        class="legend-item"
+        :class="{ inactive: hiddenGroups.has(disc) }"
+        @click="toggleGroup(disc)"
+      >
         <span class="dot" :style="{ backgroundColor: colorScale(disc) }"></span>
         <span>{{ disc }}</span>
       </div>
+    </div>
+
+    <div class="graph-hint" v-if="!graphStore.loading && graphStore.nodes.length > 0">
+      悬停高亮 | 拖拽固定 | 点击查看详情
     </div>
   </div>
 </template>
@@ -28,6 +47,12 @@ import NodeDetail from './NodeDetail.vue';
 const graphStore = useGraphStore();
 const container = ref(null);
 const svgRef = ref(null);
+
+// Interactive state
+const hiddenGroups = ref(new Set());
+const hoverNode = ref(null);
+let zoomBehavior = null;
+let svgSelection = null; // Store d3 selection
 
 let simulation = null;
 let width = 0;
@@ -46,6 +71,21 @@ const colors = [
 ];
 
 const colorScale = d3.scaleOrdinal(colors);
+
+function toggleGroup(group) {
+  if (hiddenGroups.value.has(group)) {
+    hiddenGroups.value.delete(group);
+  } else {
+    hiddenGroups.value.add(group);
+  }
+  updateGraphVisibility();
+}
+
+function resetZoom() {
+  if (svgSelection && zoomBehavior) {
+    svgSelection.transition().duration(750).call(zoomBehavior.transform, d3.zoomIdentity);
+  }
+}
 
 onMounted(() => {
   // Initial size
@@ -95,27 +135,59 @@ function initGraph() {
   // Clear previous
   const svg = d3.select(svgRef.value);
   svg.selectAll("*").remove();
+  svgSelection = svg; // Store for resetZoom
   
   svg.attr("width", width).attr("height", height);
   
   // Add zoom group
   const g = svg.append("g");
   
-  svg.call(d3.zoom()
+  zoomBehavior = d3.zoom()
       .extent([[0, 0], [width, height]])
-      .scaleExtent([0.1, 4])
+      .scaleExtent([0.1, 8])
       .on("zoom", ({transform}) => {
         g.attr("transform", transform);
-      }));
+      });
+      
+  svg.call(zoomBehavior);
 
   const nodes = graphStore.nodes.map(d => ({...d}));
   const links = graphStore.links.map(d => ({...d}));
 
+  // Neighbor index for fast lookup
+  const linkedByIndex = {};
+  links.forEach(d => {
+    // Note: before simulation, source/target are just ids if we used map above? 
+    // Wait, d3 force will mutate these. 
+    // We can rely on id strings if structure matches
+    linkedByIndex[`${d.source},${d.target}`] = 1;
+    linkedByIndex[`${d.target},${d.source}`] = 1;
+  });
+
+  function isConnected(a, b) {
+    return linkedByIndex[`${a.id},${b.id}`] || linkedByIndex[`${b.id},${a.id}`] || a.id === b.id;
+  }
+
   simulation = d3.forceSimulation(nodes)
-    .force("link", d3.forceLink(links).id(d => d.id).distance(120))
-    .force("charge", d3.forceManyBody().strength(-400))
+    .force("link", d3.forceLink(links).id(d => d.id).distance(100)) // Reduced distance for tighter clusters
+    .force("charge", d3.forceManyBody().strength(-300))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collide", d3.forceCollide().radius(d => d.val * 1.5 + 5));
+    .force("collide", d3.forceCollide().radius(d => d.val * 1.5 + 5).iterations(2));
+
+  // Arrow marker
+  svg.append("defs").selectAll("marker")
+    .data(["end"])
+    .enter().append("marker")
+    .attr("id", "arrow")
+    .attr("viewBox", "0 -5 10 10")
+    .attr("refX", 15) // Adjust based on node size logic if needed
+    .attr("refY", 0)
+    .attr("markerWidth", 6)
+    .attr("markerHeight", 6)
+    .attr("orient", "auto")
+    .append("path")
+    .attr("d", "M0,-5L10,0L0,5")
+    .attr("fill", "#999");
 
   // Edges
   const link = g.append("g")
@@ -125,38 +197,48 @@ function initGraph() {
     .join("line")
     .attr("stroke", "#dadce0")
     .attr("stroke-width", 1.5)
-    .attr("stroke-opacity", 0.6);
+    .attr("stroke-opacity", 0.6)
+    .attr("class", "link"); // Add class for selection
 
   // Nodes
   const node = g.append("g")
     .attr("class", "nodes")
-    .selectAll("circle")
+    .selectAll("g") // Use group for circle+text
     .data(nodes)
-    .join("circle")
+    .join("g")
+    .attr("class", "node")
+    .call(d3.drag()
+        .on("start", dragstarted)
+        .on("drag", dragged)
+        .on("end", dragended));
+
+  // Circle
+  node.append("circle")
     .attr("r", d => d.val * 1.2 + 5)
     .attr("fill", d => colorScale(d.group))
     .attr("stroke", "#fff")
     .attr("stroke-width", 2)
     .style("cursor", "pointer")
     .on("click", (event, d) => {
+      // Don't trigger if dragging
       graphStore.selectNode(d);
-      // Optional: trigger chat if needed
+      event.stopPropagation();
     })
-    .call(d3.drag()
-        .on("start", dragstarted)
-        .on("drag", dragged)
-        .on("end", dragended));
+    .on("mouseover", (event, d) => {
+      hoverNode.value = d;
+      updateGraphVisibility();
+    })
+    .on("mouseout", () => {
+      hoverNode.value = null;
+      updateGraphVisibility();
+    });
 
   // Labels
-  const label = g.append("g")
-    .attr("class", "labels")
-    .selectAll("text")
-    .data(nodes)
-    .join("text")
+  node.append("text")
     .text(d => d.id)
     .attr("font-size", d => Math.max(10, d.val) + "px")
     .attr("fill", "#202124")
-    .attr("dx", d => d.val + 8)
+    .attr("dx", d => d.val + 12)
     .attr("dy", 4)
     .style("pointer-events", "none")
     .style("text-shadow", "0 1px 2px rgba(255,255,255,0.8)")
@@ -170,12 +252,7 @@ function initGraph() {
         .attr("y2", d => d.target.y);
 
     node
-        .attr("cx", d => d.x)
-        .attr("cy", d => d.y);
-        
-    label
-        .attr("x", d => d.x)
-        .attr("y", d => d.y);
+        .attr("transform", d => `translate(${d.x},${d.y})`);
   });
 
   function dragstarted(event, d) {
@@ -191,9 +268,44 @@ function initGraph() {
 
   function dragended(event, d) {
     if (!event.active) simulation.alphaTarget(0);
-    d.fx = null;
-    d.fy = null;
+    // d.fx = null; // Comment out to allow "sticky" nodes - one of the interactive features
+    // d.fy = null;
+    
+    // Check if user wants to release? Maybe single click releases?
+    // For now keep sticky behavior as it's useful for organizing
   }
+
+  // Update function for visibility
+  window.updateGraphVisibility = () => {
+    const isHovering = hoverNode.value !== null;
+    const hidden = hiddenGroups.value;
+
+    node.transition().duration(200).style('opacity', d => {
+      if (hidden.has(d.group)) return 0.1;
+      if (isHovering && !isConnected(d, hoverNode.value)) return 0.1;
+      return 1;
+    });
+
+    link.transition().duration(200).style('stroke-opacity', d => {
+       const sourceHidden = hidden.has(d.source.group);
+       const targetHidden = hidden.has(d.target.group);
+       if (sourceHidden || targetHidden) return 0.05;
+
+       if (isHovering) {
+         return (d.source.id === hoverNode.value.id || d.target.id === hoverNode.value.id) ? 0.8 : 0.05;
+       }
+       return 0.6;
+    });
+    
+    node.selectAll("circle")
+      .attr("stroke", d => (isHovering && d.id === hoverNode.value.id) ? "#000" : "#fff")
+      .attr("stroke-width", d => (isHovering && d.id === hoverNode.value.id) ? 3 : 2);
+  };
+}
+
+// Helper access for the updateGraphVisibility which needs to be called from toggleGroup & watchers
+function updateGraphVisibility() {
+  if (window.updateGraphVisibility) window.updateGraphVisibility();
 }
 </script>
 
@@ -248,23 +360,86 @@ function initGraph() {
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(4px);
   border: 1px solid var(--color-border);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.legend-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  margin-bottom: 4px;
-  font-size: 12px;
+  margin-bottom: 6px;
+  font-size: 13px;
   color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: opacity 0.2s;
+  user-select: none;
 }
 
-.legend-item:last-child {
-  margin-bottom: 0;
+.legend-item:hover {
+  opacity: 0.8;
+}
+
+.legend-item.inactive {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.graph-controls {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+.control-btn {
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s;
+}
+
+.control-btn:hover {
+  background: var(--color-bg-secondary);
+  transform: translateY(-1px);
+}
+
+.control-btn span {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.graph-hint {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  background: rgba(255,255,255,0.8);
+  padding: 4px 8px;
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 .dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   margin-right: 8px;
 }

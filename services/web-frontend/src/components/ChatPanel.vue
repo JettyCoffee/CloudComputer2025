@@ -1,7 +1,11 @@
 <template>
   <div class="chat-panel">
     <div class="messages" ref="messagesContainer">
+      <div v-if="chatStore.messages.length === 0" class="empty-state">
+        <p>我是您的跨学科知识助手。<br>请输入概念或点击图谱节点开始探索。</p>
+      </div>
       <div 
+        v-else
         v-for="msg in chatStore.messages" 
         :key="msg.id" 
         class="message-wrapper"
@@ -28,7 +32,8 @@
         <textarea 
           v-model="input" 
           @keydown.enter.prevent="sendMessage"
-          placeholder="追问关于知识图谱的细节..."
+          @input="autoResize"
+          placeholder="输入问题深入探索概念"
           rows="1"
           ref="textareaRef"
         ></textarea>
@@ -37,7 +42,7 @@
           :disabled="!input.trim() || chatStore.isStreaming"
           class="send-btn"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
         </button>
       </div>
     </div>
@@ -53,6 +58,14 @@ const input = ref('');
 const messagesContainer = ref(null);
 const textareaRef = ref(null);
 
+function autoResize() {
+  const el = textareaRef.value;
+  if (el) {
+    el.style.height = 'auto'; // Reset height
+    el.style.height = el.scrollHeight + 'px';
+  }
+}
+
 function formatText(text) {
   // Simple bold formatter for **text**
   return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -64,6 +77,9 @@ async function sendMessage() {
   if (!text) return;
   
   input.value = '';
+  nextTick(() => {
+    autoResize();
+  });
   await chatStore.sendMessage(text);
 }
 
@@ -149,12 +165,13 @@ watch(() => chatStore.messages, () => {
 
 .input-wrapper {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   background: var(--color-surface);
-  border-radius: var(--radius-full);
-  padding: 8px 8px 8px 24px;
+  border-radius: 24px;
+  padding: 4px 8px 4px 24px;
   border: 1px solid transparent;
   transition: all 0.2s ease;
+  min-height: 48px;
 }
 
 .input-wrapper:focus-within {
@@ -172,7 +189,10 @@ textarea {
   font-size: 15px;
   font-family: inherit;
   color: var(--color-text-primary);
-  max-height: 100px;
+  max-height: 200px;
+  overflow: hidden;
+  padding: 8px 0;
+  line-height: 1.5;
 }
 
 .send-btn {
@@ -204,6 +224,18 @@ textarea {
   color: var(--color-text-secondary);
   font-size: 12px;
   animation: pulse 1.5s infinite;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 40px;
 }
 
 @keyframes pulse {
