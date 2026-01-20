@@ -1,7 +1,8 @@
-// Search Agent API Client
+// Search Agent & Knowledge Engine API Client
 
-// API Base URL - uses Vite proxy in development
+// API Base URLs - uses Vite proxy in development
 const API_BASE = '/api';
+const KG_API_BASE = '/kg-api';  // Knowledge Engine API
 
 // Helper to simulate delay (for mock data fallback)
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -58,6 +59,29 @@ export const mockGraphData = {
  */
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
+  const config = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
+  };
+
+  const response = await fetch(url, config);
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Knowledge Engine 请求处理函数
+ */
+async function kgRequest(endpoint, options = {}) {
+  const url = `${KG_API_BASE}${endpoint}`;
   const config = {
     headers: {
       'Content-Type': 'application/json',
@@ -203,33 +227,145 @@ export const api = {
     }
   },
 
-  // ============ 图谱相关 (暂用Mock数据，后续接入knowledge-engine) ============
+  // ============ 图谱相关 (接入knowledge-engine) ============
   
   /**
-   * 获取知识图谱数据
+   * 获取已有概念列表
+   * @returns {Promise<{concepts: string[]}>}
    */
-  getGraph: async (concept) => {
-    await delay(500);
-    return mockGraphData[concept] || mockGraphData["默认"];
+  listConcepts: async () => {
+    try {
+      return await kgRequest('/concepts');
+    } catch (error) {
+      console.error('获取概念列表失败:', error);
+      return { concepts: [] };
+    }
   },
 
-  // ============ 聊天相关 (Mock实现，后续接入) ============
+  /**
+   * 获取知识图谱数据 (从 knowledge-engine 获取)
+   * @param {string} concept - 概念名称
+   * @returns {Promise<{concept, nodes, edges, total_nodes, total_edges}>}
+   */
+  getGraph: async (concept) => {
+    try {
+      const data = await kgRequest(`/graph/${encodeURIComponent(concept)}`);
+      
+      // 转换为前端需要的格式
+      return {
+        nodes: data.nodes.map(n => ({
+          id: n.id,
+          label: n.label,
+          description: n.description,
+          group: n.domains?.[0] || '未知',
+          domains: n.domains || [],
+          val: n.size || 15,
+          sourceChunks: n.source_chunks || []
+        })),
+        links: data.edges.map(e => ({
+          source: e.source,
+          target: e.target,
+          relation: e.relation,
+          description: e.description || ''
+        })),
+        totalNodes: data.total_nodes,
+        totalEdges: data.total_edges
+      };
+    } catch (error) {
+      console.warn('从knowledge-engine获取图谱失败,使用mock数据:', error.message);
+      // Fallback to mock data
+      return mockGraphData[concept] || mockGraphData["默认"];
+    }
+  },
+
+  /**
+   * 获取图谱构建任务状态
+   * @param {string} taskId - 任务ID
+   * @returns {Promise<{task_id, status}>}
+   */
+  getGraphTaskStatus: async (taskId) => {
+    return await kgRequest(`/task/${taskId}`);
+  },
+
+  // ============ 知识问答相关 (接入knowledge-engine的LightRAG) ============
   
   /**
-   * 流式回答
+   * 知识问答 - 查询节点之间的关系
+   * @param {string} concept - 核心概念
+   * @param {string} sourceNode - 源节点ID
+   * @param {string} targetNode - 目标节点ID
+   * @param {string} question - 用户问题（可选）
+   * @returns {Promise<{concept, source_node, target_node, question, answer}>}
    */
-  async *streamAnswer(question) {
-    const responses = [
-      "根据**知识图谱**的关联分析，这个概念横跨了多个学科。",
-      "在**热力学**中，它代表系统的无序程度（S = k ln Ω）。",
-      "而在**信息论**中，它度量的是信息的不确定性（H = -Σ p(x) log p(x)）。",
-      "有趣的是，这两个定义在数学形式上是惊人一致的。",
-      "这种跨学科的联系暗示了物理世界与信息世界深层的统一性。"
-    ];
+  queryNodeRelation: async (concept, sourceNode, targetNode, question = null) => {
+    const params = new URLSearchParams();
+    params.set('concept', concept);
+    params.set('source_node', sourceNode);
+    params.set('target_node', targetNode);
+    if (question) {
+      params.set('question', question);
+    }
+    
+    return await kgRequest(`/qa?${params.toString()}`, {
+      method: 'POST'
+    });
+  },
 
-    for (const chunk of responses) {
-      await delay(600);
-      yield chunk + " ";
+  /**
+   * 通用知识问答
+   * @param {string} concept - 核心概念
+   * @param {string} question - 用户问题
+   * @returns {Promise<{answer: string}>}
+   */
+  askQuestion: async (concept, question) => {
+    const params = new URLSearchParams();
+    params.set('concept', concept);
+    params.set('source_node', concept);  // 使用concept作为source
+    params.set('target_node', concept);  // 使用concept作为target
+    params.set('question', question);
+    
+    return await kgRequest(`/qa?${params.toString()}`, {
+      method: 'POST'
+    });
+  },
+
+  // ============ 聊天相关 (接入knowledge-engine的QA) ============
+  
+  /**
+   * 流式回答 (目前knowledge-engine不支持流式，模拟流式输出)
+   * @param {string} question - 用户问题
+   * @param {string} concept - 当前概念
+   * @param {string} sourceNode - 源节点（可选）
+   * @param {string} targetNode - 目标节点（可选）
+   */
+  async *streamAnswer(question, concept = null, sourceNode = null, targetNode = null) {
+    try {
+      let answer;
+      
+      if (sourceNode && targetNode && sourceNode !== targetNode) {
+        // 查询节点关系
+        const result = await api.queryNodeRelation(concept, sourceNode, targetNode, question);
+        answer = result.answer;
+      } else if (concept) {
+        // 通用问答
+        const result = await api.askQuestion(concept, question);
+        answer = result.answer;
+      } else {
+        // 没有概念时使用mock
+        answer = "请先选择一个概念进行探索，或者开始搜索来构建知识图谱。";
+      }
+      
+      // 模拟流式输出
+      const chunks = answer.split(/(?<=[。！？\n])/);
+      for (const chunk of chunks) {
+        if (chunk.trim()) {
+          await delay(100 + Math.random() * 200);
+          yield chunk;
+        }
+      }
+    } catch (error) {
+      console.error('问答失败:', error);
+      yield `抱歉，查询失败: ${error.message}`;
     }
   }
 };

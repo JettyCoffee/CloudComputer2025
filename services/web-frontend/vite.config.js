@@ -17,8 +17,12 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8001',
         changeOrigin: true,
-        // 如果需要，可以在这里重写路径
-        // rewrite: (path) => path.replace(/^\/api/, '/api')
+      },
+      // 将 /kg-api 请求代理到 knowledge-engine 服务
+      '/kg-api': {
+        target: 'http://localhost:8002',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/kg-api/, '/api')
       }
     }
   }

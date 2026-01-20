@@ -10,17 +10,32 @@ from typing import Dict
 
 load_dotenv()
 
+# 设置 HuggingFace 镜像
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
 class RAGEngine:
     def __init__(self):
         self.base_dir = "./lightrag_workdir"
         os.makedirs(self.base_dir, exist_ok=True)
         self.rag_instances: Dict[str, LightRAG] = {}  # 存储每个概念的 RAG 实例
         
-        # 加载本地 Embedding 模型
+        # 加载 Embedding 模型（优先本地，否则从 HuggingFace 下载）
         model_path = os.getenv("EMBEDDING_MODEL", "./bge-large-zh-v1.5")
         print(f"Loading Embedding Model: {model_path} ...")
-        self.embedding_model = SentenceTransformer(model_path, device='cpu')
-        print("【success】Embedding Model Loaded")
+        try:
+            # 检查本地模型是否存在且有效
+            if os.path.exists(model_path) and os.path.exists(os.path.join(model_path, "config.json")):
+                self.embedding_model = SentenceTransformer(model_path, device='cpu')
+            else:
+                print(f"本地模型 {model_path} 不存在或无效，从 HuggingFace 下载...")
+                # 使用 HuggingFace 模型名称
+                self.embedding_model = SentenceTransformer('BAAI/bge-large-zh-v1.5', device='cpu')
+            print("【success】Embedding Model Loaded")
+        except Exception as e:
+            print(f"加载 Embedding 模型失败: {e}")
+            print("尝试使用备用模型 BAAI/bge-large-zh-v1.5...")
+            self.embedding_model = SentenceTransformer('BAAI/bge-large-zh-v1.5', device='cpu')
+            print("【success】Embedding Model Loaded (备用)")
     
     def get_rag_instance(self, concept: str) -> LightRAG:
         """

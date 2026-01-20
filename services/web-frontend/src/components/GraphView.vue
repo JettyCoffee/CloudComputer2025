@@ -32,7 +32,7 @@
     </div>
 
     <div class="graph-hint" v-if="!graphStore.loading && graphStore.nodes.length > 0">
-      悬停高亮 | 拖拽固定 | 点击查看详情
+      悬停高亮 | 拖拽固定 | 点击节点/连线询问AI
     </div>
   </div>
 </template>
@@ -42,9 +42,11 @@
 import { onMounted, ref, watch, onUnmounted } from 'vue';
 import * as d3 from 'd3';
 import { useGraphStore } from '../stores/graphStore';
+import { useChatStore } from '../stores/chatStore';
 import NodeDetail from './NodeDetail.vue';
 
 const graphStore = useGraphStore();
+const chatStore = useChatStore();
 const container = ref(null);
 const svgRef = ref(null);
 
@@ -196,9 +198,26 @@ function initGraph() {
     .data(links)
     .join("line")
     .attr("stroke", "#dadce0")
-    .attr("stroke-width", 1.5)
+    .attr("stroke-width", 2)
     .attr("stroke-opacity", 0.6)
-    .attr("class", "link"); // Add class for selection
+    .attr("class", "link")
+    .style("cursor", "pointer")
+    .on("click", (event, d) => {
+      // 点击边，选择并询问关系
+      graphStore.selectEdge(d);
+      chatStore.askAboutEdge(d);
+      event.stopPropagation();
+    })
+    .on("mouseover", function(event, d) {
+      d3.select(this)
+        .attr("stroke", "#4285F4")
+        .attr("stroke-width", 4);
+    })
+    .on("mouseout", function(event, d) {
+      d3.select(this)
+        .attr("stroke", "#dadce0")
+        .attr("stroke-width", 2);
+    });
 
   // Nodes
   const node = g.append("g")
@@ -222,6 +241,7 @@ function initGraph() {
     .on("click", (event, d) => {
       // Don't trigger if dragging
       graphStore.selectNode(d);
+      chatStore.askAboutNode(d);
       event.stopPropagation();
     })
     .on("mouseover", (event, d) => {

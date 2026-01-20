@@ -168,10 +168,21 @@ function addSuggestion(suggestion) {
   );
 }
 
-function startQuery() {
-  // Trigger graph fetch
-  graphStore.fetchGraph(searchStore.currentConcept);
-  router.push('/workspace');
+async function startQuery() {
+  try {
+    // 启动搜索任务
+    await searchStore.startSearch({
+      depth: 'medium',
+      maxResultsPerDiscipline: 10,
+      enableValidation: true
+    });
+    
+    // 跳转到工作区页面，后续会轮询搜索状态
+    router.push('/workspace');
+  } catch (error) {
+    console.error('启动搜索失败:', error);
+    alert('启动搜索失败: ' + error.message);
+  }
 }
 </script>
 

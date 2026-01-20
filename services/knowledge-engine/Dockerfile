@@ -3,20 +3,23 @@ FROM python:3.13-slim
 # 设置工作目录
 WORKDIR /app
 
+# 使用阿里云镜像源加速
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
+
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 uv 包管理器
-RUN pip install --no-cache-dir uv
+# 安装 uv 包管理器（使用国内镜像）
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ uv
 
 # 复制依赖文件
 COPY pyproject.toml ./
 
-# 使用 uv 安装依赖到系统 Python 
-RUN uv pip install --system --no-cache -r pyproject.toml
+# 使用 uv 安装依赖到系统 Python（使用国内镜像）
+RUN uv pip install --system --no-cache --index-url https://mirrors.aliyun.com/pypi/simple/ -r pyproject.toml
 
 # 复制应用代码
 COPY . .

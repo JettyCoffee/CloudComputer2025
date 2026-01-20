@@ -10,12 +10,9 @@ services:
     env_file:
       - .env
     environment:
-      - HTTP_PROXY=http://172.19.144.1:7890
-      - HTTPS_PROXY=http://172.19.144.1:7890
-      - NO_PROXY=localhost,127.0.0.1,knowledge-engine,search-agent
-      #- KNOWLEDGE_ENGINE_URL=http://knowledge-engine:8002
-    #depends_on:
-      #- knowledge-engine
+      - KNOWLEDGE_ENGINE_URL=http://knowledge-engine:8002
+    depends_on:
+      - knowledge-engine
     networks:
       - app-network
     restart: unless-stopped
@@ -29,6 +26,9 @@ services:
     env_file:
       - .env
     environment:
+      # HuggingFace 镜像
+      - HF_ENDPOINT=https://hf-mirror.com
+      
       # LLM 配置
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_BASE_URL=${LLM_BASE_URL}
