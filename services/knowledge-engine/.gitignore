@@ -1,8 +1,0 @@
-test_*
-lightrag_workdir
-.venv
-data
-lib
-bge-large-zh-v1.5
-.python-version
-uv.lock
