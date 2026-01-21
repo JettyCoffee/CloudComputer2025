@@ -41,7 +41,10 @@ export const useSearchStore = defineStore('search', {
     
     // 搜索加载状态
     isSearching: false,
-    searchError: null
+    searchError: null,
+    
+    // 用于取消请求
+    classifyAbortController: null
   }),
   
   getters: {
@@ -107,11 +110,23 @@ export const useSearchStore = defineStore('search', {
     
     // 调用分类API
     async classifyConcept(concept, maxDisciplines = 8, minRelevance = 0.3, defaultSelected = 3) {
+      // 如果有之前的请求，先取消
+      if (this.classifyAbortController) {
+        this.classifyAbortController.abort();
+      }
+      
       this.isClassifying = true;
+      this.classifyAbortController = new AbortController();
       this.classifyError = null;
       
       try {
-        const result = await api.classifyConcept(concept, maxDisciplines, minRelevance, defaultSelected);
+        const result = await api.classifyConcept(
+          concept, 
+          maxDisciplines, 
+          minRelevance, 
+          defaultSelected,
+          { signal: this.classifyAbortController.signal }
+        );
         
         this.currentConcept = result.concept;
         this.primaryDiscipline = result.primary_discipline;
@@ -121,11 +136,25 @@ export const useSearchStore = defineStore('search', {
         
         return result;
       } catch (error) {
+        if (error.name === 'AbortError') {
+          console.log('分类请求已取消');
+          return;
+        }
         this.classifyError = error.message;
         console.error('分类失败:', error);
         throw error;
       } finally {
         this.isClassifying = false;
+        this.classifyAbortController = null;
+      }
+    },
+    
+    // 取消分类请求
+    cancelClassification() {
+      if (this.classifyAbortController) {
+        this.classifyAbortController.abort();
+        this.isClassifying = false;
+        this.classifyAbortController = null;
       }
     },
     

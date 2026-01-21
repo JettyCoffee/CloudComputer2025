@@ -46,9 +46,10 @@ export const api = {
    * @param {number} maxDisciplines - 最大返回学科数
    * @param {number} minRelevance - 最小相关度阈值
    * @param {number} defaultSelected - 默认选中数量
+   * @param {Object} options - 请求选项（如 signal）
    * @returns {Promise<{concept, primary_discipline, defaults, disciplines, suggested_additions}>}
    */
-  classifyConcept: async (concept, maxDisciplines = 8, minRelevance = 0.3, defaultSelected = 3) => {
+  classifyConcept: async (concept, maxDisciplines = 8, minRelevance = 0.3, defaultSelected = 3, options = {}) => {
     const res = await request('/search/plan', {
       method: 'POST',
       body: JSON.stringify({
@@ -57,6 +58,7 @@ export const api = {
         min_relevance: minRelevance,
         default_selected: defaultSelected,
       }),
+      ...options
     });
     return res.data;
   },

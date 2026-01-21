@@ -6,23 +6,6 @@
       <ProgressSteps :current-step="3" />
     </AppHeader>
 
-    <!-- 搜索进度遮罩 -->
-    <div v-if="searchStore.isSearchInProgress" class="search-progress-overlay">
-      <div class="progress-card">
-        <h3>正在搜索知识...</h3>
-        <div class="progress-bar">
-          <div class="progress-fill" :style="{ width: searchStore.searchProgress.overall + '%' }"></div>
-        </div>
-        <p class="progress-info">
-          {{ getStageLabel(searchStore.searchProgress.currentStage) }}
-          <span class="progress-percent">{{ searchStore.searchProgress.overall }}%</span>
-        </p>
-        <div class="partial-results" v-if="searchStore.partialResults.totalChunksFound > 0">
-          <span>已找到 {{ searchStore.partialResults.totalChunksFound }} 条知识片段</span>
-        </div>
-      </div>
-    </div>
-
     <main class="main-content">
       <div class="panel graph-panel">
         <GraphView />
@@ -50,71 +33,6 @@ const searchStore = useSearchStore();
 const graphStore = useGraphStore();
 const chatStore = useChatStore();
 
-let pollInterval = null;
-
-// 阶段标签映射
-function getStageLabel(stage) {
-  const labels = {
-    'pending': '准备中...',
-    'classification': '正在分类概念...',
-    'search': '正在搜索各学科知识...',
-    'aggregation': '正在聚合结果...',
-    'validation': '正在验证知识片段...',
-    'completed': '搜索完成！'
-  };
-  return labels[stage] || stage;
-}
-
-// 轮询搜索状态
-async function pollStatus() {
-  if (!searchStore.currentTaskId) return;
-  
-  try {
-    await searchStore.pollSearchStatus();
-    
-    if (searchStore.searchStatus === 'completed') {
-      // 搜索完成，停止轮询
-      stopPolling();
-      
-      // 等待知识引擎处理完成后获取图谱
-      setTimeout(async () => {
-        await graphStore.fetchGraph(searchStore.currentConcept);
-      }, 3000);
-    } else if (searchStore.searchStatus === 'failed' || searchStore.searchStatus === 'cancelled') {
-      stopPolling();
-    }
-  } catch (error) {
-    console.error('轮询状态失败:', error);
-  }
-}
-
-function startPolling() {
-  if (pollInterval) return;
-  pollInterval = setInterval(pollStatus, 2000);
-}
-
-function stopPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
-}
-
-// 监听搜索完成，自动获取图谱
-watch(() => searchStore.searchStatus, async (newStatus) => {
-  if (newStatus === 'completed' && searchStore.currentConcept) {
-    // 搜索完成后，等待一下让知识引擎构建图谱
-    setTimeout(async () => {
-      await graphStore.fetchGraph(searchStore.currentConcept);
-      // 图谱加载成功后初始化聊天连接
-      if (graphStore.nodes.length > 0 && !graphStore.error) {
-        chatStore.setConcept(searchStore.currentConcept);
-        console.log(`图谱加载成功，已连接聊天服务: ${searchStore.currentConcept}`);
-      }
-    }, 2000);
-  }
-});
-
 // 监听图谱加载成功，初始化聊天连接
 watch(() => graphStore.nodes, (newNodes) => {
   if (newNodes.length > 0 && !graphStore.error && graphStore.concept) {
@@ -128,25 +46,17 @@ onMounted(async () => {
     // 设置chatStore的概念上下文
     chatStore.setConcept(searchStore.currentConcept);
     
-    // 如果有正在进行的搜索任务，开始轮询
-    if (searchStore.isSearchInProgress) {
-      startPolling();
-    } else {
-      // 尝试获取已有图谱
-      await graphStore.fetchGraph(searchStore.currentConcept);
-      // 图谱加载成功后确保聊天连接已建立
-      if (graphStore.nodes.length > 0 && !graphStore.error) {
-        chatStore.setConcept(searchStore.currentConcept);
-      }
+    // 尝试获取已有图谱 (如果从构建页跳转过来，可能刚获取过，但再次确认无妨，store会有缓存或快速返回)
+    await graphStore.fetchGraph(searchStore.currentConcept);
+    
+    // 图谱加载成功后确保聊天连接已建立
+    if (graphStore.nodes.length > 0 && !graphStore.error) {
+      chatStore.setConcept(searchStore.currentConcept);
     }
   } else {
     // 没有概念时重定向到首页
     router.push('/');
   }
-});
-
-onUnmounted(() => {
-  stopPolling();
 });
 </script>
 
@@ -156,70 +66,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--color-background);
-}
-
-/* 搜索进度遮罩 */
-.search-progress-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  backdrop-filter: blur(4px);
-}
-
-.progress-card {
-  background: white;
-  border-radius: var(--radius-lg);
-  padding: 32px 48px;
-  box-shadow: var(--shadow-lg);
-  text-align: center;
-  min-width: 400px;
-}
-
-.progress-card h3 {
-  margin: 0 0 24px 0;
-  font-size: 18px;
-  color: var(--color-text-primary);
-}
-
-.progress-bar {
-  height: 8px;
-  background: var(--color-surface);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 16px;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--color-primary), #34A853);
-  border-radius: 4px;
-  transition: width 0.3s ease;
-}
-
-.progress-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
-  color: var(--color-text-secondary);
-}
-
-.progress-percent {
-  font-weight: 600;
-  color: var(--color-primary);
-}
-
-.partial-results {
-  margin-top: 12px;
-  font-size: 13px;
-  color: var(--color-text-tertiary);
 }
 
 /* AppHeader is used instead of internal header structure now */

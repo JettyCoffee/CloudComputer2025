@@ -15,6 +15,7 @@
         <div v-if="searchStore.isClassifying" class="loading-state">
           <div class="spinner"></div>
           <p>正在分析概念相关学科...</p>
+          <button @click="cancelClassify" class="cancel-btn">取消</button>
         </div>
 
         <!-- 错误状态 -->
@@ -41,11 +42,16 @@
                 'is-default': discipline.is_default_selected || searchStore.defaultSelectedIds.includes(discipline.id)
               }"
             >
-              <div class="discipline-info">
-                <span class="name">{{ getDisciplineName(discipline) }}</span>
-                <span v-if="discipline.relevance_score" class="relevance">
-                  {{ Math.round(discipline.relevance_score * 100) }}%
-                </span>
+              <div class="discipline-header">
+                <div class="discipline-icon" :style="{ backgroundColor: getDisciplineColor(getDisciplineName(discipline)) }">
+                  {{ getDisciplineName(discipline).charAt(0).toUpperCase() }}
+                </div>
+                <div class="discipline-title-row">
+                  <span class="name">{{ getDisciplineName(discipline) }}</span>
+                  <span v-if="discipline.relevance_score" class="relevance-tag">
+                    {{ Math.round(discipline.relevance_score * 100) }}%
+                  </span>
+                </div>
               </div>
               <p v-if="discipline.reason" class="reason">{{ discipline.reason }}</p>
               <button class="remove-btn" @click="searchStore.removeDiscipline(discipline)">
@@ -121,6 +127,21 @@ function getDisciplineName(discipline) {
   return typeof discipline === 'string' ? discipline : discipline.name;
 }
 
+function getDisciplineColor(name) {
+  const colors = [
+    '#4285F4', '#34A853', '#FBBC05', '#EA4335', 
+    '#8E44AD', '#16A085', '#F39C12', '#2C3E50',
+    '#E91E63', '#009688', '#3F51B5', '#FF5722'
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash % colors.length);
+  return colors[index];
+}
+
+
 onMounted(async () => {
   if (!searchStore.currentConcept) {
     router.push('/');
@@ -145,6 +166,12 @@ async function classifyConcept() {
 // 重试分类
 async function retryClassify() {
   await classifyConcept();
+}
+
+// 取消分类
+function cancelClassify() {
+  searchStore.cancelClassification();
+  router.push('/'); // 取消后返回首页
 }
 
 function addNewDiscipline() {
@@ -180,8 +207,8 @@ async function startQuery() {
       enableValidation: true
     });
     
-    // 跳转到工作区页面，后续会轮询搜索状态
-    router.push('/workspace');
+    // 跳转到构建页面，实时根据搜索状态展示
+    router.push('/building');
   } catch (error) {
     console.error('启动搜索失败:', error);
     alert('启动搜索失败: ' + error.message);
@@ -201,13 +228,15 @@ async function startQuery() {
   flex: 1;
   display: flex;
   justify-content: center;
-  padding-top: 60px;
+  padding-top: 40px;
+  overflow-y: auto;
+  padding-bottom: 60px;
 }
 
 .container {
   width: 100%;
-  max-width: 800px;
-  padding: 0 24px;
+  max-width: 1200px;
+  padding: 0 40px;
 }
 
 h2 {
@@ -222,25 +251,26 @@ h2 {
 }
 
 .disciplines-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
   margin-bottom: 48px;
 }
 
 .discipline-card {
   background: white;
   border: 1px solid var(--color-border);
-  padding: 12px 24px;
-  border-radius: 8px;
+  padding: 20px;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   font-size: 16px;
   color: var(--color-text-primary);
   box-shadow: var(--shadow-sm);
   transition: all 0.2s;
   position: relative;
+  height: 100%;
 }
 
 .discipline-card.is-primary {
@@ -256,44 +286,70 @@ h2 {
 .discipline-card.is-default::before {
   content: '✓ 推荐';
   position: absolute;
-  top: -8px;
-  left: 12px;
-  font-size: 10px;
-  padding: 2px 6px;
+  top: -10px;
+  left: 20px;
+  font-size: 11px;
+  padding: 3px 8px;
   background: #34A853;
   color: white;
   border-radius: 4px;
+  font-weight: 500;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .discipline-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-4px);
   box-shadow: var(--shadow-md);
+  border-color: var(--color-primary);
 }
 
-.discipline-info {
+.discipline-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
-.discipline-info .name {
+.discipline-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  font-size: 20px;
+  flex-shrink: 0;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.discipline-title-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.discipline-title-row .name {
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.relevance-tag {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  padding: 2px 8px;
+  border-radius: 12px;
+  width: fit-content;
   font-weight: 500;
 }
 
-.discipline-info .relevance {
-  font-size: 12px;
-  color: var(--color-primary);
-  background: rgba(59, 130, 246, 0.1);
-  padding: 2px 8px;
-  border-radius: 12px;
-}
-
 .discipline-card .reason {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--color-text-secondary);
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .remove-btn {
@@ -354,6 +410,24 @@ h2 {
   border: none;
   border-radius: 6px;
   cursor: pointer;
+}
+
+.cancel-btn {
+  margin-top: 12px;
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.cancel-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
 }
 
 /* 主学科提示 */
@@ -425,20 +499,27 @@ h2 {
 
 .add-discipline-card {
   display: flex;
-  align-items: center;
+  height: 100%;
+  min-height: 160px;
 }
 
 .add-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 12px 24px;
-  border: 1px dashed var(--color-border);
-  border-radius: 8px;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  padding: 20px;
+  border: 2px dashed var(--color-border);
+  border-radius: 12px;
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
   font-size: 16px;
+  font-weight: 500;
+  transition: all 0.2s;
 }
 
 .add-btn:hover {
@@ -449,27 +530,46 @@ h2 {
 
 .add-discipline-input {
   display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
   background: white;
-  border: 1px solid var(--color-primary);
-  border-radius: 8px;
-  padding: 4px 12px;
+  border: 2px solid var(--color-primary);
+  border-radius: 12px;
+  padding: 20px;
+  width: 100%;
+  height: 100%;
+  min-height: 160px;
+  gap: 12px;
 }
 
 .add-discipline-input input {
-  border: none;
+  width: 100%;
+  border: 1px solid var(--color-border);
   outline: none;
-  padding: 8px;
+  padding: 10px;
   font-size: 16px;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.add-discipline-input input:focus {
+  border-color: var(--color-primary);
 }
 
 .confirm-add {
   background: var(--color-primary);
   color: white;
   border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
+  padding: 8px 24px;
+  border-radius: 6px;
   cursor: pointer;
+  font-weight: 500;
+  width: 100%;
+}
+
+.confirm-add:hover {
+  background: var(--color-primary-hover);
 }
 
 .actions {
