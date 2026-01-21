@@ -131,7 +131,8 @@ function toggleGroup(group) {
   } else {
     hiddenGroups.value.add(group);
   }
-  updateGraphVisibility();
+  // 数据过滤并重新布局，而不是仅仅改变透明度
+  initGraph();
 }
 
 function resetZoom() {
@@ -189,6 +190,12 @@ function handleResize() {
 function initGraph() {
   if (!svgRef.value) return;
   
+  // 保存当前的 Zoom 状态，避免筛选时重置视角体验不佳
+  let currentTransform = d3.zoomIdentity;
+  if(svgSelection) {
+      currentTransform = d3.zoomTransform(svgSelection.node());
+  }
+
   // Clear previous
   const svg = d3.select(svgRef.value);
   svg.selectAll("*").remove();
@@ -207,9 +214,20 @@ function initGraph() {
       });
       
   svg.call(zoomBehavior);
+  // Restore zoom
+  svg.call(zoomBehavior.transform, currentTransform);
 
-  const nodes = graphStore.nodes.map(d => ({...d}));
-  const links = graphStore.links.map(d => ({...d}));
+  // Filter nodes based on hiddenGroups
+  // Always keep center concept node visible
+  const nodes = graphStore.nodes
+    .filter(d => !hiddenGroups.value.has(d.group) || d.id === graphStore.concept)
+    .map(d => ({...d}));
+    
+  // Filter links: keep only if both source and target are visible
+  const visibleNodeIds = new Set(nodes.map(n => n.id));
+  const links = graphStore.links
+    .filter(d => visibleNodeIds.has(d.source) && visibleNodeIds.has(d.target))
+    .map(d => ({...d}));
 
   // 1. 预处理数据范围，建立比例尺，避免节点过大
   const valExtent = d3.extent(nodes, d => d.val || 1);
@@ -665,25 +683,31 @@ function updateGraphVisibility() {
 }
 
 @keyframes spin {
-  padding: 12px;
-  border-radius: var(--radius-md);
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.legend {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 16px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--color-border);
-  /* Use auto layout, no fixed height with scrollbars unless necessary */
-  max-width: 250px; 
+  max-width: 260px; 
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  left: 20px;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 12px;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(4px);
-  border: 1px solid var(--color-border);
-  max-height: 200px;
-  overflow-y: auto;
+  gap: 8px;
+  z-index: 10;
+  transition: all 0.3s;
+}
+
+.legend:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
 }
 
 .legend-title {
