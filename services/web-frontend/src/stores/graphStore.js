@@ -6,6 +6,7 @@ export const useGraphStore = defineStore('graph', {
     nodes: [],
     links: [],
     loading: false,
+    error: null,  // 添加错误状态
     selectedNode: null,
     selectedEdge: null,  // 添加选中的边
     disciplines: [],
@@ -18,6 +19,7 @@ export const useGraphStore = defineStore('graph', {
   actions: {
     async fetchGraph(concept) {
       this.loading = true;
+      this.error = null;
       this.concept = concept;
       
       try {
@@ -42,6 +44,13 @@ export const useGraphStore = defineStore('graph', {
         
       } catch (error) {
         console.error("Failed to fetch graph:", error);
+        this.error = error.message || '获取知识图谱失败';
+        // 清空数据
+        this.nodes = [];
+        this.links = [];
+        this.totalNodes = 0;
+        this.totalEdges = 0;
+        this.disciplines = [];
       } finally {
         this.loading = false;
       }

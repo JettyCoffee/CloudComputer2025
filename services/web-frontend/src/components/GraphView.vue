@@ -2,12 +2,33 @@
   <div ref="container" class="graph-container">
     <div v-if="graphStore.loading" class="loading-overlay">
       <div class="spinner"></div>
-      <p>正在构建知识图谱...</p>
+      <p>正在加载知识图谱...</p>
+    </div>
+
+    <div v-else-if="graphStore.error" class="error-overlay">
+      <p class="error-message">{{ graphStore.error }}</p>
+      <p class="error-hint">请先搜索并构建知识图谱，或点击刷新按钮重试</p>
+      <button @click="refreshGraph" class="refresh-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        刷新图谱
+      </button>
+    </div>
+
+    <div v-else-if="graphStore.nodes.length === 0" class="empty-overlay">
+      <p>暂无图谱数据</p>
+      <p class="empty-hint">搜索一个概念来构建知识图谱，或点击刷新按钮加载已有图谱</p>
+      <button @click="refreshGraph" class="refresh-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        刷新图谱
+      </button>
     </div>
 
     <!-- Controls -->
-    <div class="graph-controls" v-if="graphStore.nodes.length > 0">
-      <button @click="resetZoom" class="control-btn" title="重置视图">
+    <div class="graph-controls" v-if="!graphStore.loading">
+      <button @click="refreshGraph" class="control-btn" title="刷新图谱" :disabled="isRefreshing">
+        <span :class="{ 'spinning': isRefreshing }">↻</span>
+      </button>
+      <button @click="resetZoom" class="control-btn" title="重置视图" v-if="graphStore.nodes.length > 0">
         <span>⤢</span>
       </button>
     </div>
@@ -43,16 +64,19 @@ import { onMounted, ref, watch, onUnmounted } from 'vue';
 import * as d3 from 'd3';
 import { useGraphStore } from '../stores/graphStore';
 import { useChatStore } from '../stores/chatStore';
+import { useSearchStore } from '../stores/searchStore';
 import NodeDetail from './NodeDetail.vue';
 
 const graphStore = useGraphStore();
 const chatStore = useChatStore();
+const searchStore = useSearchStore();
 const container = ref(null);
 const svgRef = ref(null);
 
 // Interactive state
 const hiddenGroups = ref(new Set());
 const hoverNode = ref(null);
+const isRefreshing = ref(false);
 let zoomBehavior = null;
 let svgSelection = null; // Store d3 selection
 
@@ -73,6 +97,33 @@ const colors = [
 ];
 
 const colorScale = d3.scaleOrdinal(colors);
+
+// 刷新图谱
+async function refreshGraph() {
+  if (isRefreshing.value) return;
+  
+  const concept = searchStore.currentConcept || graphStore.concept;
+  if (!concept) {
+    console.warn('没有可用的概念');
+    return;
+  }
+  
+  isRefreshing.value = true;
+  
+  try {
+    await graphStore.fetchGraph(concept);
+    
+    // 如果图谱加载成功，初始化聊天连接
+    if (graphStore.nodes.length > 0 && !graphStore.error) {
+      chatStore.setConcept(concept);
+      console.log(`图谱加载成功，已连接聊天服务: ${concept}`);
+    }
+  } catch (error) {
+    console.error('刷新图谱失败:', error);
+  } finally {
+    isRefreshing.value = false;
+  }
+}
 
 function toggleGroup(group) {
   if (hiddenGroups.value.has(group)) {
@@ -455,6 +506,74 @@ function updateGraphVisibility() {
   padding: 4px 8px;
   border-radius: 4px;
   pointer-events: none;
+}
+
+.error-overlay,
+.empty-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255,255,255,0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  text-align: center;
+  padding: 20px;
+}
+
+.error-message {
+  color: #ef4444;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.error-hint,
+.empty-hint {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+  background: var(--color-primary-hover, #3b82f6);
+  transform: translateY(-1px);
+}
+
+.refresh-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.control-btn .spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .dot {

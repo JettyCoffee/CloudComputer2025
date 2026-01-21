@@ -106,10 +106,21 @@ watch(() => searchStore.searchStatus, async (newStatus) => {
     // 搜索完成后，等待一下让知识引擎构建图谱
     setTimeout(async () => {
       await graphStore.fetchGraph(searchStore.currentConcept);
-      chatStore.setConcept(searchStore.currentConcept);
+      // 图谱加载成功后初始化聊天连接
+      if (graphStore.nodes.length > 0 && !graphStore.error) {
+        chatStore.setConcept(searchStore.currentConcept);
+        console.log(`图谱加载成功，已连接聊天服务: ${searchStore.currentConcept}`);
+      }
     }, 2000);
   }
 });
+
+// 监听图谱加载成功，初始化聊天连接
+watch(() => graphStore.nodes, (newNodes) => {
+  if (newNodes.length > 0 && !graphStore.error && graphStore.concept) {
+    chatStore.setConcept(graphStore.concept);
+  }
+}, { deep: true });
 
 // Initial check
 onMounted(async () => {
@@ -123,13 +134,14 @@ onMounted(async () => {
     } else {
       // 尝试获取已有图谱
       await graphStore.fetchGraph(searchStore.currentConcept);
+      // 图谱加载成功后确保聊天连接已建立
+      if (graphStore.nodes.length > 0 && !graphStore.error) {
+        chatStore.setConcept(searchStore.currentConcept);
+      }
     }
   } else {
-    // If refreshed on workspace, default or redirect
-    // let's just set a default for demo
-    searchStore.setConcept("熵");
-    chatStore.setConcept("熵");
-    await graphStore.fetchGraph("熵");
+    // 没有概念时重定向到首页
+    router.push('/');
   }
 });
 

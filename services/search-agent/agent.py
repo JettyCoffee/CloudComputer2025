@@ -344,9 +344,17 @@ class SearchAgent:
                     data = r.json()
                 content = data["choices"][0]["message"]["content"]
                 return json.loads(content)
+            except httpx.HTTPStatusError as e:
+                last_exc = e
+                logger.warning("LLM request failed attempt=%s/3 err=%r", attempt + 1, e)
+                # 429 错误需要更长的等待时间
+                if e.response.status_code == 429:
+                    await asyncio.sleep(5.0 * (attempt + 1))  # 5s, 10s, 15s
+                else:
+                    await asyncio.sleep(1.0 * (attempt + 1))
             except Exception as e:
                 last_exc = e
                 logger.warning("LLM request failed attempt=%s/3 err=%r", attempt + 1, e)
-                await asyncio.sleep(0.8 * (attempt + 1))
+                await asyncio.sleep(1.0 * (attempt + 1))
 
         raise last_exc

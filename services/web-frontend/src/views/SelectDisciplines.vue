@@ -36,7 +36,10 @@
               v-for="discipline in searchStore.disciplines" 
               :key="getDisciplineName(discipline)"
               class="discipline-card"
-              :class="{ 'is-primary': discipline.is_primary }"
+              :class="{ 
+                'is-primary': discipline.is_primary,
+                'is-default': discipline.is_default_selected || searchStore.defaultSelectedIds.includes(discipline.id)
+              }"
             >
               <div class="discipline-info">
                 <span class="name">{{ getDisciplineName(discipline) }}</span>
@@ -243,6 +246,23 @@ h2 {
 .discipline-card.is-primary {
   border-color: var(--color-primary);
   background: linear-gradient(to right, rgba(59, 130, 246, 0.05), white);
+}
+
+.discipline-card.is-default {
+  border-color: #34A853;
+  background: linear-gradient(to right, rgba(52, 168, 83, 0.05), white);
+}
+
+.discipline-card.is-default::before {
+  content: '✓ 推荐';
+  position: absolute;
+  top: -8px;
+  left: 12px;
+  font-size: 10px;
+  padding: 2px 6px;
+  background: #34A853;
+  color: white;
+  border-radius: 4px;
 }
 
 .discipline-card:hover {

@@ -4,55 +4,8 @@
 const API_BASE = '/api';
 const KG_API_BASE = '/kg-api';  // Knowledge Engine API
 
-// Helper to simulate delay (for mock data fallback)
+// Helper to simulate delay (for streaming simulation)
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Mock Graph Data (保留用于图谱展示，后续可接入knowledge-engine)
-export const mockGraphData = {
-  "熵": {
-    nodes: [
-      { id: "熵", group: "核心", val: 20 },
-      { id: "热力学", group: "物理学", val: 15 },
-      { id: "统计力学", group: "物理学", val: 12 },
-      { id: "信息论", group: "计算机科学", val: 15 },
-      { id: "香农熵", group: "计算机科学", val: 10 },
-      { id: "玻尔兹曼熵", group: "物理学", val: 10 },
-      { id: "最大熵原理", group: "统计学", val: 8 },
-      { id: "生命与熵", group: "生物学", val: 10 },
-      { id: "耗散结构", group: "化学", val: 8 },
-      { id: "麦克斯韦妖", group: "物理学", val: 8 },
-      { id: "数据压缩", group: "计算机科学", val: 6 },
-    ],
-    links: [
-      { source: "熵", target: "热力学" },
-      { source: "熵", target: "信息论" },
-      { source: "熵", target: "统计力学" },
-      { source: "热力学", target: "玻尔兹曼熵" },
-      { source: "信息论", target: "香农熵" },
-      { source: "统计力学", target: "玻尔兹曼熵" },
-      { source: "信息论", target: "数据压缩" },
-      { source: "统计力学", target: "最大熵原理" },
-      { source: "热力学", target: "麦克斯韦妖" },
-      { source: "熵", target: "生命与熵" },
-      { source: "热力学", target: "耗散结构" },
-      { source: "生命与熵", target: "耗散结构" }
-    ]
-  },
-  "默认": {
-    nodes: [
-      { id: "查询词", group: "核心", val: 20 },
-      { id: "概念A", group: "领域1", val: 10 },
-      { id: "概念B", group: "领域2", val: 10 },
-      { id: "概念C", group: "领域3", val: 10 },
-    ],
-    links: [
-      { source: "查询词", target: "概念A" },
-      { source: "查询词", target: "概念B" },
-      { source: "查询词", target: "概念C" },
-      { source: "概念A", target: "概念B" }
-    ]
-  }
-};
 
 /**
  * 统一请求处理函数
@@ -114,15 +67,17 @@ export const api = {
    * @param {string} concept - 要分类的概念
    * @param {number} maxDisciplines - 最大返回学科数
    * @param {number} minRelevance - 最小相关度阈值
-   * @returns {Promise<{concept, primary_discipline, disciplines, suggested_additions}>}
+   * @param {number} defaultSelected - 默认选中数量
+   * @returns {Promise<{concept, primary_discipline, defaults, disciplines, suggested_additions}>}
    */
-  classifyConcept: async (concept, maxDisciplines = 5, minRelevance = 0.3) => {
-    const res = await request('/search/classify', {
+  classifyConcept: async (concept, maxDisciplines = 8, minRelevance = 0.3, defaultSelected = 3) => {
+    const res = await request('/search/plan', {
       method: 'POST',
       body: JSON.stringify({
         concept,
         max_disciplines: maxDisciplines,
         min_relevance: minRelevance,
+        default_selected: defaultSelected,
       }),
     });
     return res.data;
@@ -248,34 +203,28 @@ export const api = {
    * @returns {Promise<{concept, nodes, edges, total_nodes, total_edges}>}
    */
   getGraph: async (concept) => {
-    try {
-      const data = await kgRequest(`/graph/${encodeURIComponent(concept)}`);
-      
-      // 转换为前端需要的格式
-      return {
-        nodes: data.nodes.map(n => ({
-          id: n.id,
-          label: n.label,
-          description: n.description,
-          group: n.domains?.[0] || '未知',
-          domains: n.domains || [],
-          val: n.size || 15,
-          sourceChunks: n.source_chunks || []
-        })),
-        links: data.edges.map(e => ({
-          source: e.source,
-          target: e.target,
-          relation: e.relation,
-          description: e.description || ''
-        })),
-        totalNodes: data.total_nodes,
-        totalEdges: data.total_edges
-      };
-    } catch (error) {
-      console.warn('从knowledge-engine获取图谱失败,使用mock数据:', error.message);
-      // Fallback to mock data
-      return mockGraphData[concept] || mockGraphData["默认"];
-    }
+    const data = await kgRequest(`/graph/${encodeURIComponent(concept)}`);
+    
+    // 转换为前端需要的格式
+    return {
+      nodes: data.nodes.map(n => ({
+        id: n.id,
+        label: n.label,
+        description: n.description,
+        group: n.domains?.[0] || '未知',
+        domains: n.domains || [],
+        val: n.size || 15,
+        sourceChunks: n.source_chunks || []
+      })),
+      links: data.edges.map(e => ({
+        source: e.source,
+        target: e.target,
+        relation: e.relation,
+        description: e.description || ''
+      })),
+      totalNodes: data.total_nodes,
+      totalEdges: data.total_edges
+    };
   },
 
   /**
@@ -298,16 +247,18 @@ export const api = {
    * @returns {Promise<{concept, source_node, target_node, question, answer}>}
    */
   queryNodeRelation: async (concept, sourceNode, targetNode, question = null) => {
-    const params = new URLSearchParams();
-    params.set('concept', concept);
-    params.set('source_node', sourceNode);
-    params.set('target_node', targetNode);
+    const body = {
+      concept,
+      source_node: sourceNode,
+      target_node: targetNode,
+    };
     if (question) {
-      params.set('question', question);
+      body.question = question;
     }
     
-    return await kgRequest(`/qa?${params.toString()}`, {
-      method: 'POST'
+    return await kgRequest('/qa', {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
   },
 
@@ -318,14 +269,14 @@ export const api = {
    * @returns {Promise<{answer: string}>}
    */
   askQuestion: async (concept, question) => {
-    const params = new URLSearchParams();
-    params.set('concept', concept);
-    params.set('source_node', concept);  // 使用concept作为source
-    params.set('target_node', concept);  // 使用concept作为target
-    params.set('question', question);
-    
-    return await kgRequest(`/qa?${params.toString()}`, {
-      method: 'POST'
+    return await kgRequest('/qa', {
+      method: 'POST',
+      body: JSON.stringify({
+        concept,
+        source_node: concept,  // 使用concept作为source
+        target_node: concept,  // 使用concept作为target
+        question,
+      }),
     });
   },
 

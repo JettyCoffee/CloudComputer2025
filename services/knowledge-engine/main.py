@@ -1,10 +1,11 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from models import IngestRequest, GraphResponse
+from models import IngestRequest, GraphResponse, QARequest
 from core.rag_engine import rag_engine
 from core.graph_processor import graph_processor
 from core.storage import storage
 import uuid
+import asyncio
 from lightrag import QueryParam
 
 app = FastAPI(title="Knowledge Engine", version="1.0.0")
@@ -18,7 +19,7 @@ async def health_check():
     return {"status": "ok", "service": "knowledge-engine"}
 
 @app.post("/api/ingest")
-async def ingest(request: IngestRequest, background_tasks: BackgroundTasks):
+async def ingest(request: IngestRequest):
     """
     接收 Search Agent 的文档
     
@@ -55,9 +56,9 @@ async def ingest(request: IngestRequest, background_tasks: BackgroundTasks):
     # 存储文档
     storage.save_documents(documents)
     
-    # 后台构建图谱
+    # 后台构建图谱 - 使用 asyncio.create_task 避免 pickle 问题
     task_status[task_id] = "processing"
-    background_tasks.add_task(process_task, task_id, request.concept, documents)
+    asyncio.create_task(process_task(task_id, request.concept, documents))
     
     return {
         "status": "accepted",
@@ -146,23 +147,9 @@ async def list_concepts():
     concepts = [f.replace('.json', '') for f in os.listdir(graph_dir) if f.endswith('.json')]
     return {"concepts": concepts}
 
-# ...existing code...
-
-@app.get("/api/concepts")
-async def list_concepts():
-    """列出所有已构建的概念"""
-    import os
-    graph_dir = "./data/graphs"
-    
-    if not os.path.exists(graph_dir):
-        return {"concepts": []}
-    
-    concepts = [f.replace('.json', '') for f in os.listdir(graph_dir) if f.endswith('.json')]
-    return {"concepts": concepts}
-
 
 @app.post("/api/qa")
-async def answer_question(concept: str, source_node: str, target_node: str, question: str = None) -> dict:
+async def answer_question(request: QARequest) -> dict:
     """
     知识问答接口：利用 LightRAG 推理两个节点之间的关系
 
@@ -175,6 +162,11 @@ async def answer_question(concept: str, source_node: str, target_node: str, ques
     返回:
     - LightRAG 生成的答案
     """
+    concept = request.concept
+    source_node = request.source_node
+    target_node = request.target_node
+    question = request.question
+    
     # 如果用户没有提供问题，生成默认问题
     if not question:
         question = f"请详细说明 '{source_node}' 和 '{target_node}' 之间的关系，并提供推理过程，100字左右。"

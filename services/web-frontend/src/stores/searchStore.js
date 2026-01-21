@@ -12,6 +12,9 @@ export const useSearchStore = defineStore('search', {
     // 主学科
     primaryDiscipline: '',
     
+    // 默认选中的学科ID列表
+    defaultSelectedIds: [],
+    
     // 建议添加的学科
     suggestedAdditions: [],
     
@@ -103,16 +106,17 @@ export const useSearchStore = defineStore('search', {
     },
     
     // 调用分类API
-    async classifyConcept(concept, maxDisciplines = 5, minRelevance = 0.3) {
+    async classifyConcept(concept, maxDisciplines = 8, minRelevance = 0.3, defaultSelected = 3) {
       this.isClassifying = true;
       this.classifyError = null;
       
       try {
-        const result = await api.classifyConcept(concept, maxDisciplines, minRelevance);
+        const result = await api.classifyConcept(concept, maxDisciplines, minRelevance, defaultSelected);
         
         this.currentConcept = result.concept;
         this.primaryDiscipline = result.primary_discipline;
         this.disciplines = result.disciplines;
+        this.defaultSelectedIds = result.defaults || [];
         this.suggestedAdditions = result.suggested_additions || [];
         
         return result;
@@ -253,6 +257,7 @@ export const useSearchStore = defineStore('search', {
       this.currentConcept = '';
       this.disciplines = [];
       this.primaryDiscipline = '';
+      this.defaultSelectedIds = [];
       this.suggestedAdditions = [];
       this.isClassifying = false;
       this.classifyError = null;

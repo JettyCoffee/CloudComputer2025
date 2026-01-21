@@ -28,6 +28,13 @@ class IngestRequest(BaseModel):
     concept: str
     chunks: list[Chunk] 
 
+class QARequest(BaseModel):
+    """知识问答请求"""
+    concept: str
+    source_node: str
+    target_node: str
+    question: Optional[str] = None
+
 # ========== 输出模型 ==========
 class NodeItem(BaseModel):
     id: str
