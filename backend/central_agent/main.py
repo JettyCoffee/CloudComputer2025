@@ -225,6 +225,14 @@ async def get_graph(concept: str) -> APIResponse:
         raise HTTPException(status_code=404, detail=f"Graph for '{concept}' not found")
     return APIResponse(data=GraphResponse(**data))
 
+@app.get("/api/graph/chunk/{chunk_id}")
+async def get_chunk(chunk_id: str) -> APIResponse:
+    """获取原始文档片段内容"""
+    data = knowledge_service.get_chunk(chunk_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Chunk '{chunk_id}' not found")
+    return APIResponse(data=data)
+
 @app.post("/api/qa")
 async def qa(req: QARequest) -> APIResponse:
     """基于图谱的问答"""

@@ -7,36 +7,55 @@
       </button>
     </div>
     
-    <div class="badge" :style="{ backgroundColor: color }">
+    <div class="badge" :style="{ backgroundColor: 'var(--color-primary)' }">
       {{ graphStore.selectedNode.group }}
+    </div>
+
+    <!-- 原始文本展示区 -->
+    <div class="section" v-if="relatedChunks.length > 0">
+      <div class="section-title">相关原始文献</div>
+      <div class="chunks-container">
+        <div 
+          v-for="chunk in relatedChunks" 
+          :key="chunk.doc_id" 
+          class="chunk-item"
+        >
+          <div class="chunk-content">{{ chunk.content.slice(0, 100) }}...</div>
+          <a class="source-link" @click.prevent="openChunk(chunk)">查看全文</a>
+        </div>
+      </div>
     </div>
     
     <div class="actions">
       <button class="action-btn primary" @click="askAbout">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
         在对话中探索
-      </button>
-      <button class="action-btn" @click="expandNode">
-        展开关联
       </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, watch, ref } from 'vue';
 import { useGraphStore } from '../stores/graphStore';
 import { useChatStore } from '../stores/chatStore';
-import * as d3 from 'd3';
 
 const graphStore = useGraphStore();
 const chatStore = useChatStore();
+const relatedChunks = ref([]);
 
-const color = computed(() => {
-  // Re-use logic or pass color prop
-  // Ideally color scale should be shared or in store
-  // For now simple reliable hash or default
-  return "#4285F4"; 
-});
+// 监听选中节点变化，加载相关文档
+watch(() => graphStore.selectedNode, async (newNode) => {
+  relatedChunks.value = [];
+  if (newNode && newNode.sourceChunks && newNode.sourceChunks.length > 0) {
+    // 仅加载前 3 个相关文档，避免请求过多
+    const chunksToLoad = newNode.sourceChunks.slice(0, 3);
+    const chunks = await Promise.all(
+      chunksToLoad.map(cid => graphStore.fetchChunk(cid))
+    );
+    relatedChunks.value = chunks.filter(c => c);
+  }
+}, { immediate: true });
 
 function askAbout() {
   const node = graphStore.selectedNode;
@@ -45,9 +64,10 @@ function askAbout() {
   }
 }
 
-function expandNode() {
-  // Placeholder for expanding graph
-  alert("正在请求更多节点关联...");
+function openChunk(chunk) {
+  // TODO: 使用 Modal 或展开展示全文
+  console.log('Open chunk:', chunk);
+  alert(chunk.content);
 }
 </script>
 
@@ -56,85 +76,160 @@ function expandNode() {
   position: absolute;
   top: 20px;
   right: 20px;
-  width: 280px;
-  background: white;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  padding: 20px;
+  width: 320px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: 24px;
   border: 1px solid var(--color-border);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
   z-index: 100;
   animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(-10px) translateX(10px); }
+  to { opacity: 1; transform: translateY(0) translateX(0); }
 }
 
 .header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 12px;
 }
 
 .title {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   margin: 0;
+  line-height: 1.4;
   color: var(--color-text-primary);
 }
 
 .close-btn {
   background: none;
   border: none;
-  font-size: 24px;
-  line-height: 1;
-  color: var(--color-text-secondary);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--color-text-tertiary);
   cursor: pointer;
-  padding: 0;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
 }
 
 .badge {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 100px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 6px;
   color: white;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background-color: var(--color-primary); /* Default fallback */
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-title {
   font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+}
+
+.chunks-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.chunk-item {
+  background: var(--color-surface);
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.chunk-item:hover {
+  border-color: var(--color-border);
+  background: white;
+}
+
+.chunk-content {
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+.source-link {
+  color: var(--color-primary);
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
   font-weight: 500;
-  margin-bottom: 24px;
+}
+
+.source-link:hover {
+  text-decoration: underline;
 }
 
 .actions {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-top: 8px;
 }
 
 .action-btn {
   width: 100%;
-  padding: 10px;
-  border-radius: var(--radius-sm);
+  padding: 12px;
+  border-radius: 12px;
   border: 1px solid var(--color-border);
   background: white;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .action-btn:hover {
   background: var(--color-surface);
+  transform: translateY(-1px);
 }
 
 .action-btn.primary {
   background: var(--color-text-primary);
   color: white;
-  border: none;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-md);
 }
 
 .action-btn.primary:hover {
-  background: #000;
+  background: #111;
+  box-shadow: var(--shadow-lg);
 }
 </style>

@@ -81,6 +81,16 @@ export const useGraphStore = defineStore('graph', {
     clearSelection() {
       this.selectedNode = null;
       this.selectedEdge = null;
+    },
+
+    async fetchChunk(chunkId) {
+      if (!chunkId) return null;
+      try {
+        return await api.getChunk(chunkId);
+      } catch (error) {
+        console.error(`Failed to fetch chunk ${chunkId}:`, error);
+        return null;
+      }
     }
   }
 })

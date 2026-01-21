@@ -75,6 +75,10 @@ class KnowledgeService:
         """[被 Central Agent 调用] 获取图谱数据"""
         return self.storage.get_graph(concept)
 
+    def get_chunk(self, chunk_id: str) -> Optional[dict]:
+        """[被 Central Agent 调用] 获取原始文档片段"""
+        return self.storage.get_document(chunk_id)
+
     def list_concepts(self) -> List[str]:
         """[被 Central Agent 调用] 列出已有图谱"""
         import os 

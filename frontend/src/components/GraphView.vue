@@ -161,6 +161,10 @@ watch(() => graphStore.nodes, (newNodes) => {
   }
 }, { deep: true });
 
+watch(() => graphStore.selectedNode, () => {
+  updateGraphVisibility();
+});
+
 function updateDimensions() {
   if (container.value) {
     width = container.value.clientWidth;
@@ -207,49 +211,189 @@ function initGraph() {
   const nodes = graphStore.nodes.map(d => ({...d}));
   const links = graphStore.links.map(d => ({...d}));
 
+  // 1. 预处理数据范围，建立比例尺，避免节点过大
+  const valExtent = d3.extent(nodes, d => d.val || 1);
+  // 使用开方比例尺，使面积与数值成正比，避免巨大节点
+  const radiusScale = d3.scaleSqrt()
+    .domain([0, valExtent[1] || 10])
+    .range([8, 25])
+    .clamp(true); // 限制最大最小值
+    
+  const fontSizeScale = d3.scaleLinear()
+    .domain([0, valExtent[1] || 10])
+    .range([11, 14])
+    .clamp(true);
+
+  // 辅助函数：获取节点半径
+  function getNodeRadius(d) {
+    if (d.id === graphStore.concept) return 35; // 中心节点稍大
+    return radiusScale(d.val || 1);
+  }
+
   // Neighbor index for fast lookup
   const linkedByIndex = {};
+  const adj = {};
+
+  // Build Adjacency List for BFS
   links.forEach(d => {
-    // Note: before simulation, source/target are just ids if we used map above? 
-    // Wait, d3 force will mutate these. 
-    // We can rely on id strings if structure matches
-    linkedByIndex[`${d.source},${d.target}`] = 1;
-    linkedByIndex[`${d.target},${d.source}`] = 1;
+    // d.source and d.target are initially strings (IDs), but d3 force will mutate them to objects.
+    // We should use strings for our maps before simulation starts, or handle objects if later.
+    // At this point (before simulation), they are objects because I did .map(d => ({...d}))? 
+    // Wait, in previous fetchGraph, I did map(...).
+    // Let's assume they are strings initially if fetchGraph is standard. 
+    // BUT d3.forceLink(links) happens later.
+    // IF initGraph is called multiple times, be careful. 
+    // We are mapping from graphStore.nodes/links which are fresh objects each time initGraph calls map?
+    // graphStore.links are from API response.
+    
+    // Safety check: handle if they are objects (re-rendering)
+    const s = (typeof d.source === 'object') ? d.source.id : d.source;
+    const t = (typeof d.target === 'object') ? d.target.id : d.target;
+
+    linkedByIndex[`${s},${t}`] = 1;
+    linkedByIndex[`${t},${s}`] = 1;
+    
+    if (!adj[s]) adj[s] = [];
+    if (!adj[t]) adj[t] = [];
+    adj[s].push(t);
+    adj[t].push(s);
   });
+
+  // Calculate levels (hops from center) & Predecessors for Path Finding
+  const levelMap = new Map();
+  const parentMap = new Map(); // For reconstructing path to center
+  const startNodeId = graphStore.concept;
+  
+  if (startNodeId) {
+    const queue = [[startNodeId, 0]];
+    levelMap.set(startNodeId, 0);
+    const visited = new Set([startNodeId]);
+    
+    let head = 0;
+    while(head < queue.length) {
+      const [curr, level] = queue[head++];
+      if (adj[curr]) {
+        for (const neighbor of adj[curr]) {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            levelMap.set(neighbor, level + 1);
+            parentMap.set(neighbor, curr); // Store parent
+            queue.push([neighbor, level + 1]);
+          }
+        }
+      }
+    }
+  }
+
+  nodes.forEach(n => {
+    n.level = levelMap.has(n.id) ? levelMap.get(n.id) : 4; // Default outer ring
+  });
+
+  // Calculate path from node to center
+  function getPathToCenter(nodeId) {
+    const pathNodes = new Set([nodeId]);
+    const pathEdges = new Set();
+    let curr = nodeId;
+    
+    // Safety break
+    let count = 0;
+    while(curr !== startNodeId && count < 100) {
+      const parent = parentMap.get(curr);
+      if (!parent) break;
+      
+      pathNodes.add(parent);
+      
+      // Edge key depends on ID sort or just verify both
+      // We will check validity in visibility function
+      // But creating a deterministic key for edges in path is useful
+      // Or just check if edge endpoints are (curr, parent)
+      
+      curr = parent;
+      count++;
+    }
+    return { nodes: pathNodes, edges: pathEdges }; // we only need node set for now, edge check is dynamically done
+  }
 
   function isConnected(a, b) {
     return linkedByIndex[`${a.id},${b.id}`] || linkedByIndex[`${b.id},${a.id}`] || a.id === b.id;
   }
 
-  simulation = d3.forceSimulation(nodes)
-    .force("link", d3.forceLink(links).id(d => d.id).distance(100)) // Reduced distance for tighter clusters
-    .force("charge", d3.forceManyBody().strength(-300))
-    .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collide", d3.forceCollide().radius(d => d.val * 1.5 + 5).iterations(2));
+  // 中心节点定位
+  const conceptNode = nodes.find(n => n.id === graphStore.concept);
+  if (conceptNode) {
+    // 固定中心节点位置
+    conceptNode.fx = width / 2;
+    conceptNode.fy = height / 2;
+    conceptNode.val = 30; // 确保中心节点足够大
+    conceptNode.level = 0;
+  }
 
-  // Arrow marker
-  svg.append("defs").selectAll("marker")
-    .data(["end"])
-    .enter().append("marker")
+  simulation = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links).id(d => d.id).distance(d => {
+       // 根据层级动态调整连线长度，内层稍微紧凑，外层松散
+       const sourceLevel = d.source.level || 0;
+       const targetLevel = d.target.level || 0;
+       if (sourceLevel === 0 || targetLevel === 0) return 120;
+       return 80;
+    })) 
+    .force("charge", d3.forceManyBody().strength(d => {
+      // 动态斥力，大节点斥力更大，避免重叠
+      const r = getNodeRadius(d);
+      return -200 - (r * 15); 
+    }))
+    .force("collide", d3.forceCollide().radius(d => {
+      // 碰撞半径包含文字标签的一定空间预留
+      return getNodeRadius(d) * 1.2 + 15; 
+    }).iterations(3))
+    .force("radial", d3.forceRadial(
+      d => {
+         // 层级布局半径
+         const level = d.level || 0;
+         if (level === 0) return 0;
+         return 120 + (level - 1) * 100; // 第一层120，后续每层递增100
+      }, 
+      width / 2, 
+      height / 2
+    ).strength(0.6)); // 降低一点强度，允许物理模拟微调位置
+
+  // Arrow marker & Filters
+  const defs = svg.append("defs");
+  
+  defs.append("marker")
     .attr("id", "arrow")
     .attr("viewBox", "0 -5 10 10")
-    .attr("refX", 15) // Adjust based on node size logic if needed
+    .attr("refX", 18) // Moved back slightly to account for node stroke
     .attr("refY", 0)
-    .attr("markerWidth", 6)
-    .attr("markerHeight", 6)
+    .attr("markerWidth", 5)
+    .attr("markerHeight", 5)
     .attr("orient", "auto")
     .append("path")
     .attr("d", "M0,-5L10,0L0,5")
-    .attr("fill", "#999");
+    .attr("fill", "#bdc1c6");
+
+  // Drop Shadow Filter
+  const filter = defs.append("filter")
+    .attr("id", "shadow")
+    .attr("x", "-50%")
+    .attr("y", "-50%")
+    .attr("width", "200%")
+    .attr("height", "200%");
+    
+  filter.append("feDropShadow")
+    .attr("dx", 0)
+    .attr("dy", 2)
+    .attr("stdDeviation", 3)
+    .attr("flood-color", "#000000")
+    .attr("flood-opacity", 0.15);
 
   // Edges
   const link = g.append("g")
     .attr("class", "links")
-    .selectAll("line")
+    .selectAll("path") // Changed to path for curves if desired, or stay line
     .data(links)
     .join("line")
-    .attr("stroke", "#dadce0")
-    .attr("stroke-width", 2)
+    .attr("stroke", "#e0e0e0") // Lighter default
+    .attr("stroke-width", 1.5)
     .attr("stroke-opacity", 0.6)
     .attr("class", "link")
     .style("cursor", "pointer")
@@ -258,22 +402,29 @@ function initGraph() {
       graphStore.selectEdge(d);
       chatStore.askAboutEdge(d);
       event.stopPropagation();
-    })
-    .on("mouseover", function(event, d) {
-      d3.select(this)
-        .attr("stroke", "#4285F4")
-        .attr("stroke-width", 4);
-    })
-    .on("mouseout", function(event, d) {
-      d3.select(this)
-        .attr("stroke", "#dadce0")
-        .attr("stroke-width", 2);
     });
+    
+     // ... mouseover/out ... moved to updateGraphVisibility or keep simple hover effect?
+     // We rely on updateGraphVisibility mostly, but can add simple hover stroke width increase locally if needed.
+     // But updateGraphVisibility handles Logic better.
+
+  // Center Pulse Effect (under nodes)
+  const centerNodeData = nodes.find(n => n.id === graphStore.concept);
+  let pulseGroup;
+  
+  if (centerNodeData) {
+    pulseGroup = g.append("g").attr("class", "pulse-group");
+    pulseGroup.append("circle")
+        .attr("class", "pulse-circle")
+        .attr("r", 30)
+        .attr("fill", "var(--color-primary)")
+        .attr("opacity", 0.2);
+  }
 
   // Nodes
   const node = g.append("g")
     .attr("class", "nodes")
-    .selectAll("g") // Use group for circle+text
+    .selectAll("g") 
     .data(nodes)
     .join("g")
     .attr("class", "node")
@@ -282,17 +433,17 @@ function initGraph() {
         .on("drag", dragged)
         .on("end", dragended));
 
-  // Circle
+  // Node Circle
   node.append("circle")
-    .attr("r", d => d.val * 1.2 + 5)
-    .attr("fill", d => colorScale(d.group))
-    .attr("stroke", "#fff")
-    .attr("stroke-width", 2)
+    .attr("r", d => getNodeRadius(d))
+    .attr("fill", d => d.id === graphStore.concept ? "white" : colorScale(d.group))
+    .attr("stroke", d => d.id === graphStore.concept ? "var(--color-primary)" : "#fff")
+    .attr("stroke-width", d => d.id === graphStore.concept ? 4 : 2)
+    .style("filter", "url(#shadow)")
     .style("cursor", "pointer")
+    .style("transition", "fill 0.3s, stroke-width 0.3s")
     .on("click", (event, d) => {
-      // Don't trigger if dragging
       graphStore.selectNode(d);
-      chatStore.askAboutNode(d);
       event.stopPropagation();
     })
     .on("mouseover", (event, d) => {
@@ -304,16 +455,38 @@ function initGraph() {
       updateGraphVisibility();
     });
 
-  // Labels
-  node.append("text")
+  // Labels with Halo
+  const labelGroup = node.append("g")
+    .style("pointer-events", "none");
+
+  // Helper for label positioning
+  const getLabelDx = d => d.id === graphStore.concept ? 0 : getNodeRadius(d) + 6;
+  const getLabelDy = d => d.id === graphStore.concept ? 0 : 4;
+  const getFontSize = d => d.id === graphStore.concept ? "15px" : fontSizeScale(d.val || 1) + "px";
+
+  labelGroup.append("text")
     .text(d => d.id)
-    .attr("font-size", d => Math.max(10, d.val) + "px")
+    .attr("font-size", getFontSize)
     .attr("fill", "#202124")
-    .attr("dx", d => d.val + 12)
-    .attr("dy", 4)
-    .style("pointer-events", "none")
-    .style("text-shadow", "0 1px 2px rgba(255,255,255,0.8)")
-    .style("font-weight", "500");
+    .attr("dx", getLabelDx)
+    .attr("dy", getLabelDy)
+    .attr("text-anchor", d => d.id === graphStore.concept ? "middle" : "start")
+    .attr("dominant-baseline", d => d.id === graphStore.concept ? "middle" : "auto")
+    .attr("stroke", "white")
+    .attr("stroke-width", 3)
+    .attr("stroke-linejoin", "round")
+    .attr("stroke-opacity", 0.8)
+    .style("font-weight", "600");
+
+  labelGroup.append("text")
+    .text(d => d.id)
+    .attr("font-size", getFontSize)
+    .attr("fill", "#202124")
+    .attr("dx", getLabelDx)
+    .attr("dy", getLabelDy)
+    .attr("text-anchor", d => d.id === graphStore.concept ? "middle" : "start")
+    .attr("dominant-baseline", d => d.id === graphStore.concept ? "middle" : "auto")
+    .style("font-weight", "600");
 
   simulation.on("tick", () => {
     link
@@ -324,6 +497,10 @@ function initGraph() {
 
     node
         .attr("transform", d => `translate(${d.x},${d.y})`);
+        
+    if (pulseGroup && centerNodeData) {
+        pulseGroup.attr("transform", `translate(${centerNodeData.x},${centerNodeData.y})`);
+    }
   });
 
   function dragstarted(event, d) {
@@ -348,12 +525,41 @@ function initGraph() {
 
   // Update function for visibility
   window.updateGraphVisibility = () => {
-    const isHovering = hoverNode.value !== null;
     const hidden = hiddenGroups.value;
+    const isHovering = hoverNode.value !== null;
+    const isSelected = graphStore.selectedNode !== null;
+    const centerId = graphStore.concept;
+    
+    // Determine target node for Path Logic
+    // Priority: Hover > Selected
+    let targetNode = null;
+    if (isHovering) {
+        targetNode = hoverNode.value;
+    } else if (isSelected) {
+        targetNode = graphStore.selectedNode;
+    }
+
+    // Calculate path if a valid target is present
+    let activeNodes = null; // Set of IDs
+    let isPathActive = false;
+    
+    if (targetNode && targetNode.id !== centerId) {
+       // Highlight path from targetNode to center
+       const pathData = getPathToCenter(targetNode.id);
+       activeNodes = pathData.nodes;
+       isPathActive = true;
+    }
 
     node.transition().duration(200).style('opacity', d => {
+      // 1. Group filtering
       if (hidden.has(d.group)) return 0.1;
-      if (isHovering && !isConnected(d, hoverNode.value)) return 0.1;
+      
+      // 2. Interaction filtering
+      if (isPathActive) {
+        if (activeNodes && activeNodes.has(d.id)) return 1;
+        return 0.1;
+      }
+      
       return 1;
     });
 
@@ -362,15 +568,57 @@ function initGraph() {
        const targetHidden = hidden.has(d.target.group);
        if (sourceHidden || targetHidden) return 0.05;
 
-       if (isHovering) {
-         return (d.source.id === hoverNode.value.id || d.target.id === hoverNode.value.id) ? 0.8 : 0.05;
+       if (isPathActive) {
+         if (activeNodes) {
+           const s = d.source.id;
+           const t = d.target.id;
+           if (activeNodes.has(s) && activeNodes.has(t)) {
+             const p_s = parentMap.get(s);
+             const p_t = parentMap.get(t);
+             if (p_s === t || p_t === s) return 1.0; 
+           }
+         }
+         return 0.1; 
        }
        return 0.6;
     });
     
+    // 统一样式处理，增强高亮效果
+    link.transition().duration(200)
+      .style('stroke', d => {
+        if (isPathActive && activeNodes) {
+            const s = d.source.id;
+            const t = d.target.id;
+            if (activeNodes.has(s) && activeNodes.has(t)) {
+               const p_s = parentMap.get(s);
+               const p_t = parentMap.get(t);
+               if (p_s === t || p_t === s) return "var(--color-primary)"; 
+            }
+        }
+        return "#dadce0";
+      })
+      .style('stroke-width', d => {
+        if (isPathActive && activeNodes) {
+            const s = d.source.id;
+            const t = d.target.id;
+            if (activeNodes.has(s) && activeNodes.has(t)) {
+               const p_s = parentMap.get(s);
+               const p_t = parentMap.get(t);
+               if (p_s === t || p_t === s) return 4;
+            }
+        }
+        return 2;
+      });
+    
     node.selectAll("circle")
-      .attr("stroke", d => (isHovering && d.id === hoverNode.value.id) ? "#000" : "#fff")
-      .attr("stroke-width", d => (isHovering && d.id === hoverNode.value.id) ? 3 : 2);
+      .attr("stroke", d => {
+          if (isPathActive && activeNodes && activeNodes.has(d.id)) return "#000"; 
+          return "#fff";
+      })
+      .attr("stroke-width", d => {
+           if (isPathActive && activeNodes && activeNodes.has(d.id)) return 3;
+           return 2;
+      });
   };
 }
 
@@ -417,13 +665,16 @@ function updateGraphVisibility() {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.legend {
-  position: absolute;
-  bottom: 20px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--color-border);
+  /* Use auto layout, no fixed height with scrollbars unless necessary */
+  max-width: 250px; 
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   left: 20px;
   background: rgba(255, 255, 255, 0.9);
   padding: 12px;
@@ -581,5 +832,16 @@ function updateGraphVisibility() {
   height: 10px;
   border-radius: 50%;
   margin-right: 8px;
+}
+
+.pulse-circle {
+  animation: pulse 2s infinite;
+  transform-origin: center;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.95); opacity: 0.5; }
+  70% { transform: scale(1.3); opacity: 0; }
+  100% { transform: scale(0.95); opacity: 0; }
 }
 </style>

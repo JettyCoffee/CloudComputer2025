@@ -210,6 +210,16 @@ export const api = {
   },
 
   /**
+   * 获取原始文档片段
+   * @param {string} chunkId - 片段ID
+   * @returns {Promise<{doc_id, domain, content}>}
+   */
+  getChunk: async (chunkId) => {
+    const res = await request(`/graph/chunk/${encodeURIComponent(chunkId)}`);
+    return res.data;
+  },
+
+  /**
    * 获取图谱构建任务状态
    * @param {string} taskId - 任务ID
    * @returns {Promise<{task_id, status}>}
