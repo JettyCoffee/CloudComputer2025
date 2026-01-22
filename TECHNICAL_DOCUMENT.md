@@ -19,13 +19,13 @@
 
 ### 1.2 云原生组件与技术栈
 
-系统主要使用了以下云原生技术和组件：
+系统合理地采用了云原生技术架构，以确保部署的灵活性和环境的一致性：
 
-*   **Docker & Docker Compose**: 全系统容器化封装。`backend` 和 `frontend` 均编写了 `Dockerfile`，并通过 `docker-compose.yml` 进行统一编排和服务发现。
-*   **Microservices (Lite)**: 后端采用模块化设计，虽然目前部署在单容器中，但各个 Agent (Search, Knowledge, Central) 逻辑解耦，具备拆分为独立微服务的能力。
-*   **Neo4j (Containerized)**: 使用官方 Docker 镜像部署图数据存储服务，配置了持久化卷 (`volumes`) 保证数据安全。
-*   **Embedding Model Volume**: 通过 Docker Volume 将宿主机预下载的模型挂载至容器内部，避免镜像过大并加速启动。
-*   **FastAPI**: 现代化的 Python Web 框架，提供高性能的异步接口服务，完美适配 LLM Agent 的异步 IO 密集型操作。
+*   **Docker & Docker Compose**: 全系统容器化封装。`backend` 和 `frontend` 均编写了 `Dockerfile`，并通过 `docker-compose.yml` 进行统一编排和服务发现。这种方式使得应用可以在任何支持 Docker 的 Linux 环境中“一次构建，到处运行”，极大地简化了运维复杂度。
+*   **Microservices (Lite) Architecture**: 后端采用模块化设计，Search Agent、Knowledge Engine 和 API 服务逻辑解耦。虽然目前为了简化演示部署在单容器中，但各个组件具备拆分为独立微服务的原生能力（Microservices Ready）。
+*   **Neo4j (Containerized)**: 使用官方 Docker 镜像部署图数据存储服务，配置了持久化卷 (`volumes`) 保证数据安全，利用容器网络实现服务间的高速通信。
+*   **Embedding Model Volume**: 通过 Docker Volume 将宿主机预下载的模型挂载至容器内部，避免镜像过大（Slim Image），同时加速容器启动时间。
+*   **FastAPI**: 选择 FastAPI 不仅因为其高性能，更因为它对异步（Async）的原生支持，完美适配 LLM Agent 这种高并发 IO 密集型（等待模型响应）的场景。
 
 ### 1.3 LLM Agent 工具链
 
@@ -34,6 +34,18 @@
 *   **Tavily API**: 专为 LLM 设计的搜索引擎接口，提供高质量的 web 搜索结果。
 *   **Pydantic**: 强类型数据校验，定义了系统内部流转的标准数据模型（如 `Chunk`, `SearchItem`），保证 Agent 间交互的稳定性。
 *   **LightRAG**: 并不是简单的 RAG，而是基于图的 RAG 框架，负责将非结构化文档转化为结构化的图谱数据。
+
+### 1.4 系统稳定性与可扩展性设计
+
+*   **稳定性保障 (Stability)**:
+    *   **强类型约束**: 全面使用 Python 的 `Pydantic` 进行数据模型定义和校验，确保 Agent 间传递的数据结构（如 JSON Schema）严格符合预期，减少运行时错误。
+    *   **环境隔离**: 基于 Docker 容器化部署，确保开发、测试与生产环境的一致性，避免依赖冲突。
+    *   **异常处理**: 核心服务（如 Search Agent）实现了完善的错误捕获与重试机制，防止因单个请求失败导致整个任务流崩溃。
+
+*   **可扩展性 (Scalability)**:
+    *   **微服务就绪 (Microservices Ready)**: 系统模块（Central UI, Search, Knowledge）虽然目前共存在单体中，但已通过 API 接口进行逻辑解耦。未来可轻松拆分为独立的微服务容器，配合 K8s 进行弹性伸缩。
+    *   **异步并发**: 采用 `FastAPI` + `asyncio` 的全异步架构，能够高效处理大量并发的 LLM 请求和网络 IO，支持高负载下的稳定运行。
+    *   **模块化组件**: 新增搜索源（如 Arxiv）或更换 LLM 模型（如切换至 GPT-4）仅需扩展相应的 Base 类或配置，无需重构核心逻辑。
 
 ---
 
@@ -79,7 +91,7 @@ Search Agent 的工作流是一个有向无环图（DAG），包含以下关键�
 
 ### 3.2 关键 Prompt 模板展示
 
-系统使用了结构化的 System Prompt 来引导 LLM 完成特定子任务。
+系统使用了高度结构化且严谨的 System Prompt 来引导 LLM 完成特定子任务。这些 Prompt 经过精心设计和多次迭代，包含了明确的角色设定（Persona）、具体的任务指令（Instruction）以及严格的输出格式约束（Output Constraint），以最大限度减少 LLM 的不确定性和模型幻觉。
 
 **1. 学科分类 Prompt (Classify Prompt)**
 
@@ -154,6 +166,20 @@ VALIDATE_PROMPT = """\
 """
 
 ```
+
+### 3.3 鲁棒性与防幻觉设计 (Robustness & Anti-Hallucination)
+
+针对 LLM 常见的幻觉和不稳定问题，系统采取了多重防御策略：
+
+1.  **严格的 JSON 格式强制 (Strict JSON Enforcement)**:
+    *   在 Prompt 中明确要求 `JSON` 格式输出，并配合 Pydantic 的校验器。如果 LLM 返回了无法解析的格式，系统会触发重试机制或降级处理，而不是让错误向下游传播。
+2.  **基于证据的生成 (Evidence-Based Generation)**:
+    *   Agent 绝不凭空生成知识。所有的图谱构建都严格基于 Search Agent 检索并验证过的 `Source Chunks`（真实来源片段）。
+    *   在构建节点时，系统维护了从 **Graph Node -> Chunk -> Source URL** 的完整溯源链路，每一条知识都有据可查。
+3.  **双重验证机制 (Dual Validation)**:
+    *   引入独立的 **Validation Node**。生成内容不仅仅是“生成”，还必须通过“审核”。LLM 被要求扮演批判性的审核员角色，对检索内容的学术价值进行评分，低分内容直接丢弃。
+4.  **异常输入防御 (Abnormal Input Handling)**:
+    *   对于用户的恶意输入或非结构化查询，分类器（Classification Node）会首先尝试将其归一化为标准概念。如果输入无法识别，系统将返回友好的错误提示，而不是执行错误的搜索逻辑。
 
 ## 4. 前端流程技术设计 (Frontend Process Design)
 
